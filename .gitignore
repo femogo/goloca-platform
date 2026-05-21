@@ -1,0 +1,65 @@
+# OS-specific
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Windows
+*.lnk
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Git
+.git/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Credentials and sensitive files
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+secrets.txt
+credentials.json
+.env
+.env.local
+config-secrets.yaml
+
+# Backups
+*.bak
+*.backup
+*.old
+backup/
+
+# Fortigate/Network configs with sensitive data
+# (we'll store sanitized versions only)
+*.conf.full
+*.full
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Dependencies
+node_modules/
+.npm/
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Project-specific
+# (add more as needed)

@@ -1,0 +1,790 @@
+# ROADMAP DEVOPS — GOLOCA AI
+
+**Documento maestro de hoja de ruta.**
+**Versión:** 1.0
+**Fecha de creación:** 21 mayo 2026
+**Autor (mentor):** Arquitecto DevOps Senior · Mentor Técnico
+**Duración total:** 6 meses
+**Estado actual:** Pre-arranque Proyecto 1 (decisiones cerradas)
+
+---
+
+## 1. CONTEXTO DEL APRENDIZ Y OBJETIVO FINAL
+
+### 1.1 Punto de partida (Nivel 0)
+
+- Conocimientos: básicos/intermedios de Linux, redes, programación general.
+- Ubicación: Madrid, España.
+- Disponibilidad: 6 meses, dedicación parcial regular.
+
+### 1.2 Objetivo final del roadmap
+
+Al finalizar los 6 meses, el aprendiz debe poder optar a roles junior **remotos en Europa** en:
+
+- DevOps Engineer Junior
+- Cloud Engineer Junior
+- Platform Engineer Junior
+- SRE Junior
+- Infraestructura Cloud Junior
+
+Enfocado al ecosistema de **startups de IA tipo A** (AI-native SaaS, plataformas de agentes IA, RAG-based products), que es el arquetipo de mayor demanda en el mercado europeo 2026-2030.
+
+### 1.3 Diferenciadores que el roadmap busca generar
+
+1. Portfolio público en GitHub con infraestructura realista, no ejercicios académicos.
+2. Capacidad operacional real: debugging, troubleshooting, observabilidad.
+3. Stack alineado con plataformas de IA modernas (multi-tenancy, vector DBs, LLM serving, RAG).
+4. Narrativa diferenciadora: **modo soberano on-premise con LLM local** aprovechando GPU RTX 4060.
+5. Conocimiento de networking real (no solo "instalé Docker").
+
+---
+
+## 2. EMPRESA FICTICIA: GOLOCA AI
+
+### 2.1 Descripción
+
+Startup B2B con sede en Madrid, equipo distribuido España/Alemania/Estonia. Vende una plataforma de **agentes IA** que automatizan operaciones internas de empresas medianas europeas: atención al cliente nivel 1, análisis de contratos, generación de reportes financieros, gestión de tickets internos.
+
+### 2.2 Modelo de negocio
+
+SaaS multi-tenant. Cada cliente tiene datos aislados, agentes personalizados, y consume tokens facturados a final de mes. Dos modalidades:
+
+- **Modo Cloud:** llamadas a APIs externas (OpenAI, Anthropic, Mistral). Más barato, datos del cliente salen.
+- **Modo Sovereign:** LLM local (Llama 3.1, Qwen 2.5) en GPU on-premise. Más caro y complejo, obligatorio para clientes regulados (banca, healthcare, sector público bajo AI Act EU).
+
+### 2.3 Stack técnico objetivo (6 meses)
+
+| Componente | Tecnología | Proyecto |
+|---|---|---|
+| Perímetro de red | FortiGate 30E | P1 |
+| Hipervisor | Proxmox VE | P1 |
+| Sistema base | Ubuntu Server 24.04 LTS | P1 |
+| API gateway | NGINX + FastAPI (Python) | P2 |
+| Cola de tareas | Redis Streams | P2 |
+| Base de datos transaccional | PostgreSQL 16 | P2 |
+| Vector DB (RAG) | PostgreSQL + pgvector | P3 |
+| Orquestación | K3s → Kubernetes | P3 |
+| Gestión paquetes | Helm | P3 |
+| CI/CD | GitHub Actions | P4 |
+| Escaneo vulnerabilidades | Trivy | P4 / P6 |
+| Métricas | Prometheus | P4 |
+| Logs centralizados | Loki | P4 |
+| Visualización | Grafana | P4 |
+| Cloud público | AWS (VPC, EC2, S3, RDS) | P5 |
+| IaC | Terraform | P5 |
+| Configuration mgmt | Ansible | P5 |
+| Secrets | Vault o AWS Secrets Manager | P6 |
+| Hardening OS | CIS Ubuntu benchmarks | P6 |
+| Protección perimetral host | Fail2ban | P6 |
+| LLM local | Ollama + Llama 3.1 8B | P6 |
+
+### 2.4 Convenciones de naming (aplicables los 6 meses)
+
+- **Dominio interno:** `goloca.lab`
+- **Dominio público (DDNS):** `<DDNS-HOSTNAME>`
+- **Repositorio GitHub:** `goloca-platform`
+- **Hostnames:** `<rol>-<entorno>-<nn>.goloca.lab`
+  - Ejemplos: `fgt-prod-01`, `pve-prod-01`, `bastion-prod-01`, `app-prod-01`, `db-prod-01`, `k3s-master-01`, `k3s-worker-01`
+- **Entornos:** `prod`, `staging`, `dev` (de momento solo `prod`; los demás aparecerán en P4-P5)
+
+---
+
+## 3. INVENTARIO DE HARDWARE Y RED FÍSICA
+
+### 3.1 PC servidor (host de virtualización)
+
+- **CPU:** Intel Core i5 10ª generación
+- **RAM:** 32 GB DDR4
+- **GPU:** NVIDIA RTX 4060 (8 GB VRAM) — reservada para P6 (LLM local vía Ollama + NVIDIA Container Toolkit)
+- **Almacenamiento:**
+  - NVMe 240 GB #1 → Proxmox sistema + boot (`local`)
+  - NVMe 240 GB #2 → VMs críticas (`local-lvm-nvme`)
+  - SSD 500 GB → VMs secundarias / workers K3s (`local-lvm-ssd`)
+  - HDD 1 TB → Backups, ISOs, snapshots, exports (`backup` dir)
+  - Discos adicionales → Reserva para P6 (modelos LLM ~5-15 GB cada uno, vector DB persistente)
+- **SO:** Pendiente formateo → **Proxmox VE 8.x bare-metal** (eliminando Windows Server actual)
+
+### 3.2 PC Windows (workstation desarrollo)
+
+- Permanece con Windows.
+- Uso: VS Code Remote SSH, terminal, FortiClient VPN, herramientas dev.
+
+### 3.3 Portátil auxiliar
+
+- Workstation de administración.
+- Cliente VPN para simular acceso remoto desde fuera.
+- Mantiene SO actual.
+
+### 3.4 Infraestructura de red
+
+- **FortiGate 30E** (FortiOS 7.4+): núcleo perimetral. Configuración como router/firewall principal.
+- **Switch D-Link DGS-1005P**: **NO gestionable** (sin VLAN tagging, sin L3). Usado como switch tonto en zona SERVERS.
+- **Access Point WiFi**: doméstico, sirviendo VLAN WIFI sin acceso a zonas internas.
+- **Router HGU Movistar** (~6 años, probablemente Mitrastar GPT-2541GNAC o Askey RFT3505VW): proporciona conectividad WAN. **Doble NAT** con el FortiGate (ver decisión arquitectónica 4.4).
+
+### 3.5 Conectividad de Internet
+
+- **ISP:** Movistar
+- **IP pública:** `203.0.113.10` (validada como **NO CGNAT**)
+- **Naturaleza:** dinámica (casi seguro) → resuelto con DDNS DuckDNS
+- **Implicación:** port forwarding viable, exposición externa posible
+
+---
+
+## 4. DECISIONES ARQUITECTÓNICAS CERRADAS
+
+Estas decisiones están **bloqueadas**. No se replantean salvo cambio de hardware.
+
+### 4.1 Segmentación de red
+
+- **Decisión:** segmentación por **puertos físicos del FortiGate** (no VLAN tagging).
+- **Razón:** el switch DGS-1005P es no gestionable.
+- **Implicación:** 4 zonas físicas + 1 reserva (5 puertos LAN del FortiGate utilizados).
+- **Deuda técnica:** si el laboratorio crece más allá de 4 zonas, será necesario un switch gestionable (recomendado: TP-Link TL-SG108E ~25 €).
+
+### 4.2 Hipervisor
+
+- **Decisión:** Proxmox VE bare-metal sobre el PC servidor.
+- **Razón:** estándar de facto en pymes europeas tras la adquisición VMware → Broadcom; KVM nativo; ecosistema Linux completo; defendible en entrevistas.
+- **Trade-off conocido:** ZFS descartado por discos heterogéneos. Se usa **LVM-thin** sobre cada disco independientemente.
+
+### 4.3 Empresa ficticia
+
+- **Decisión:** Goloca AI (Plataforma de Agentes IA Empresariales — arquetipo A).
+- **Razón:** máxima empleabilidad remota en Europa 2026-2030; stack transferible; narrativa "modo soberano" aprovecha la RTX 4060; resistente a la sustitución del propio rol DevOps por IA.
+
+### 4.4 Topología de NAT con HGU Movistar
+
+- **Decisión:** **Doble NAT con DMZ Host** (HGU envía todo el tráfico no solicitado al FortiGate).
+- **Razón:** evita perder IPTV de Movistar si se usa; delega seguridad al FortiGate; configuración más simple que modo monopuesto/bridge.
+- **Alternativa futura (opcional):** modo monopuesto del HGU si IPTV no se usa, eliminando el doble NAT.
+
+### 4.5 Migración de bastion-prod-01 a zona MGMT
+
+- **Estado actual:** bastion-prod-01 en zona SERVERS (10.20.0.40) temporalmente.
+- **Razón temporal:** el PC Proxmox tiene una sola NIC física.
+- **Resolución futura:** adquirir **adaptador USB 3.0 a Gigabit Ethernet** (~15-20 €), conectarlo al puerto LAN1 del FortiGate (MGMT), crear `vmbr1` en Proxmox, migrar el bastión a 10.10.0.40.
+- **Tiempo estimado de migración cuando llegue el adaptador:** 5 minutos.
+
+### 4.6 Repositorios sin suscripción de Proxmox
+
+- **Decisión:** repositorios `no-subscription` documentados.
+- **Razón:** laboratorio formativo, sin presupuesto.
+- **Deuda técnica documentada:** en producción real se usa suscripción de pago para builds estables y soporte.
+
+### 4.7 Usuario en grupo docker
+
+- **Decisión:** `ubuntu` en grupo `docker` en app-prod-01.
+- **Trade-off documentado:** equivale a root. Mitigado parcialmente por el patrón bastión + RBAC futuro en Kubernetes (P3).
+
+---
+
+## 5. ESQUEMA DE DIRECCIONAMIENTO
+
+### 5.1 Zonas y subredes
+
+| Puerto FortiGate | Nombre | Subred | Propósito | Acceso desde Internet |
+|---|---|---|---|---|
+| WAN1 | wan | 192.168.1.x (vía HGU) → 203.0.113.10 | Salida a Internet | N/A |
+| LAN1 | port-mgmt | 10.10.0.0/24 | Gestión: portátil admin, futuras VMs MGMT | Solo vía SSL-VPN |
+| LAN2 | port-servers | 10.20.0.0/24 | Servidores: PC Proxmox, PC Windows dev, VMs aplicación | Nunca directo |
+| LAN3 | port-dmz | 10.30.0.0/24 | DMZ: reverse proxy NGINX (a partir de P2) | Solo 80/443 vía NAT |
+| LAN4 | port-wifi | 10.99.0.0/24 | WiFi laboratorio / invitados | Sin acceso a otras zonas |
+| LAN5 | reserva | — | Expansión P3 (clúster K3s adicional) | — |
+| ssl.root | vpn-pool | 10.10.99.0/24 | Pool VPN para acceso remoto | Solo via SSL-VPN |
+
+### 5.2 Tabla maestra de hosts
+
+| Hostname | IP | Zona | Rol | Recursos | Proyecto en que aparece |
+|---|---|---|---|---|---|
+| `fgt-prod-01` | 10.10.0.1 / 10.20.0.1 / 10.30.0.1 / 10.99.0.1 | Todas (router) | Firewall perimetral | Hardware | P1 |
+| `pve-prod-01` | 10.20.0.10 | SERVERS | Hipervisor | Hardware (i5+32GB+RTX) | P1 |
+| `bastion-prod-01` | 10.20.0.40 (futuro 10.10.0.40) | SERVERS (futuro MGMT) | Bastión SSH + Ansible controller | VM 1 vCPU / 2 GB / 20 GB | P1 |
+| `app-prod-01` | 10.20.0.20 | SERVERS | Host Docker | VM 2 vCPU / 4 GB / 40 GB | P1-P2 |
+| `db-prod-01` (TBD) | 10.20.0.30 | SERVERS | (alternativa: PostgreSQL en contenedor de app-prod-01 en P2) | VM o contenedor | P2-P3 |
+| `dev01` (PC Windows) | 10.20.0.30 | SERVERS | Workstation dev | Hardware | Permanente |
+| `admin-ops` (portátil) | 10.10.0.50 | MGMT | Workstation admin | Hardware | Permanente |
+| `nginx-dmz-01` (TBD) | 10.30.0.20 | DMZ | Reverse proxy | VM o contenedor | P2 |
+| `k3s-master-01` (TBD) | 10.20.0.50 | SERVERS | K3s control plane | VM 2 vCPU / 4 GB | P3 |
+| `k3s-worker-01` (TBD) | 10.20.0.51 | SERVERS | K3s worker | VM 2 vCPU / 4 GB | P3 |
+| `monitor-prod-01` (TBD) | 10.20.0.60 | SERVERS | Prometheus + Grafana + Loki | VM 2 vCPU / 4 GB | P4 |
+
+---
+
+## 6. TOPOLOGÍA FÍSICA Y LÓGICA
+
+```
+                          INTERNET
+                              │
+                              ▼  IP pública dinámica 203.0.113.10
+                              │  (DDNS: <DDNS-HOSTNAME>)
+                  ┌───────────────────────┐
+                  │  HGU Movistar         │
+                  │  (DMZ Host → FGT)     │
+                  │  192.168.1.1/24       │
+                  └───────────┬───────────┘
+                              │
+                              ▼ WAN1
+              ┌────────────────────────────────────┐
+              │       FortiGate 30E                │
+              │   fgt-prod-01.goloca.lab            │
+              │                                    │
+              │   WAN1      → 192.168.1.x (DHCP)   │
+              │   LAN1 MGMT  → 10.10.0.1/24        │
+              │   LAN2 SRV   → 10.20.0.1/24        │
+              │   LAN3 DMZ   → 10.30.0.1/24        │
+              │   LAN4 WIFI  → 10.99.0.1/24        │
+              │   LAN5       → reserva (P3)        │
+              │                                    │
+              │   SSL-VPN pool → 10.10.99.0/24     │
+              └─┬────┬────┬────┬───────────────────┘
+                │    │    │    │
+        LAN1    │    │LAN2│LAN3│LAN4
+       (MGMT)   │    │(SRV│(DMZ│(WIFI)
+                │    │ )  │ )  │
+                ▼    ▼    ▼    ▼
+         ┌──────────┐ ┌─────────────┐ ┌──────┐ ┌──────┐
+         │ Portátil │ │ DGS-1005P   │ │ libre│ │  AP  │
+         │ admin-   │ │ (sw tonto)  │ │ P2:  │ │ WiFi │
+         │ ops      │ │             │ │ NGINX│ │      │
+         │10.10.0.50│ └──┬───────┬──┘ │ DMZ  │ │10.99 │
+         └──────────┘    │       │    └──────┘ └──────┘
+                         │       │
+                  ┌──────▼──┐ ┌──▼─────────────┐
+                  │ PC Win  │ │ PC Servidor    │
+                  │ workst  │ │ Proxmox VE     │
+                  │ dev01   │ │ pve-prod-01    │
+                  │10.20.0  │ │ 10.20.0.10/24  │
+                  │  .30    │ │                │
+                  └─────────┘ └────────┬───────┘
+                                       │
+                              ┌────────┼────────────────┐
+                              │   Proxmox VMs (P1)      │
+                              │                         │
+                  ┌───────────▼──────┐  ┌───────────────▼───┐
+                  │ bastion-prod-01  │  │ app-prod-01       │
+                  │ 10.20.0.40 (tmp) │  │ 10.20.0.20        │
+                  │ VLAN SRV (tmp)   │  │ VLAN SRV          │
+                  │ 1 vCPU / 2 GB    │  │ 2 vCPU / 4 GB     │
+                  │ Ubuntu 24.04     │  │ Ubuntu 24.04      │
+                  │ Bastión SSH      │  │ Docker host P2    │
+                  └──────────────────┘  └───────────────────┘
+```
+
+---
+
+## 7. ESTRUCTURA GENERAL DEL ROADMAP — 6 PROYECTOS
+
+Cada proyecto **reutiliza la infraestructura del anterior**. Nada se tira. La plataforma evoluciona como una empresa real.
+
+```
+PROYECTO 1  ──►  PROYECTO 2  ──►  PROYECTO 3  ──►  PROYECTO 4  ──►  PROYECTO 5  ──►  PROYECTO 6
+ (Mes 1)         (Mes 2)          (Mes 3)          (Mes 4)          (Mes 5)          (Mes 6)
+
+ Base Linux     Contenedores     Orquestación     CI/CD +          Cloud Híbrido    Seguridad
+ Networking     Docker           K3s/K8s          Observabilidad   AWS + IaC        DR + HA
+ FortiGate      Compose          Helm/Ingress     GH Actions       Terraform        DevSecOps
+ Proxmox        NGINX/PG/Redis   Persistencia     Prom/Graf/Loki   VPN Site-to-Site Trivy/Hardening
+                                                                                    + LLM local
+```
+
+### PROYECTO 1 · Mes 1 — Infraestructura Base, Networking Real y Virtualización
+
+**Objetivo:** convertir el hardware en plataforma operativa. FortiGate como núcleo de seguridad, Proxmox como hipervisor, VMs Ubuntu endurecidas, flujo Windows → bastión → VMs vía VS Code. Cierra con un entorno Linux listo para Docker.
+
+**Mini-proyectos:**
+1.1 · Segmentación de red con FortiGate (2,5-3h)
+1.2 · SSL-VPN + DDNS (2-2,5h)
+1.3 · Proxmox VE bare-metal (2,5-3h)
+1.4 · Template Ubuntu + cloud-init (2-2,5h)
+1.5 · Bastion host + VS Code Remote SSH (1,5-2h)
+1.6 · Linux baseline + Docker (2,5-3h)
+
+**Duración total:** 13-16 horas.
+
+### PROYECTO 2 · Mes 2 — Contenerización del Stack Aplicativo
+
+**Objetivo:** levantar el stack de Goloca AI (API simulada + PostgreSQL + Redis + NGINX) en Docker y Docker Compose. Reverse proxy NGINX en DMZ con TLS, volúmenes persistentes, redes Docker segmentadas, healthchecks, primer enfrentamiento con debugging de red Docker y logs de contenedor.
+
+**Tecnologías clave:** Docker Engine, Docker Compose, NGINX, PostgreSQL 16, Redis, FastAPI (Python stub de "agente"), Let's Encrypt vía certbot o acme.sh.
+
+### PROYECTO 3 · Mes 3 — Orquestación con K3s
+
+**Objetivo:** migrar el stack a un clúster K3s (1 master + 1-2 workers en VMs Proxmox). Ingress Controller, ConfigMaps, Secrets, PersistentVolumes, NetworkPolicies, RBAC. Helm Charts para empaquetar la aplicación. Introducción a pgvector para RAG.
+
+**Tecnologías clave:** K3s, kubectl, Helm 3, Traefik o NGINX Ingress, MetalLB (para LoadBalancer en bare-metal), PostgreSQL + pgvector.
+
+### PROYECTO 4 · Mes 4 — CI/CD y Observabilidad
+
+**Objetivo:** pipelines GitHub Actions (build → test → scan Trivy → push a registry → deploy a K3s). Stack de observabilidad completo: Prometheus + Grafana + Loki + Alertmanager. Dashboards de negocio reales: tasa de éxito de agentes, latencia P95/P99, coste por interacción simulado, errores 5xx.
+
+**Tecnologías clave:** GitHub Actions, Trivy, GitHub Container Registry (ghcr.io), Prometheus, Grafana, Loki, Alertmanager.
+
+### PROYECTO 5 · Mes 5 — Cloud Híbrido AWS + IaC
+
+**Objetivo:** extender la plataforma a AWS. VPC con subredes públicas/privadas, IAM con least privilege, EC2, S3 (backups del clúster local + almacenamiento de modelos), RDS opcional. Terraform con módulos, backend remoto (S3 + DynamoDB lock), gestión de tfstate. VPN site-to-site IPsec entre FortiGate y AWS Site-to-Site VPN. Ansible para configuración de instancias EC2.
+
+**Tecnologías clave:** AWS (VPC, EC2, S3, IAM, RDS, Site-to-Site VPN), Terraform 1.x, Ansible, awscli.
+
+### PROYECTO 6 · Mes 6 — Seguridad, Disaster Recovery y LLM Local
+
+**Objetivo:** hardening CIS Ubuntu, Fail2ban en bastión, escaneo continuo con Trivy en pipelines, gestión de secretos (HashiCorp Vault o AWS Secrets Manager), backups automatizados, simulacro de DR (restaurar clúster desde cero), pruebas de carga con k6, alta disponibilidad básica del Ingress y PostgreSQL. **Despliegue de Ollama + Llama 3.1 8B en la RTX 4060** vía GPU passthrough a una VM dedicada, expuesto como servicio interno "modo soberano" de Goloca AI.
+
+**Tecnologías clave:** CIS-CAT Lite o Lynis, Fail2ban, Trivy, Vault, k6, Ollama, NVIDIA Container Toolkit.
+
+---
+
+## 8. DESGLOSE DETALLADO DEL PROYECTO 1
+
+> **Estado de las decisiones técnicas:** ✅ Todas cerradas. Listo para ejecutar.
+
+### 8.1 Mini-Proyecto 1.1 — Segmentación de Red Real con FortiGate 30E
+
+**Duración:** 2,5 - 3 horas
+
+**Objetivo:** configurar el FortiGate 30E desde reset de fábrica como núcleo perimetral. Cuatro zonas físicas con políticas least-privilege. Validar conectividad selectiva.
+
+**Tecnologías:** FortiGate 30E (FortiOS 7.4+), direccionamiento RFC1918, zonas, políticas, NAT, DHCP, logging.
+
+**Problema empresarial:** Goloca AI procesa datos sensibles. Intrusión vía dispositivo IoT doméstico comprometido no debe pivotar a infraestructura de producción. Defensa en profundidad empieza en capa de red.
+
+**Pasos clave:**
+1. Reset físico FortiGate, acceso inicial vía 192.168.1.99, cambio de contraseña, hostname `fgt-prod-01`, NTP, timezone.
+2. WAN1 en DHCP hacia HGU Movistar, verificación ping/DNS.
+3. Eliminar modo switch interno, configurar cada LAN como interfaz independiente.
+4. Configurar IPs, DHCP servers y reservas estáticas en cada zona.
+5. DNS forwarding desde FortiGate a Cloudflare 1.1.1.1.
+6. Crear objetos de red (addresses, address groups).
+7. Crear políticas firewall en orden (ver matriz abajo).
+8. Habilitar logging Memory + Disk.
+9. Validación: ping cruzados entre zonas para confirmar permitidos y denegados.
+10. Backup de configuración.
+
+**Matriz de políticas firewall:**
+
+| Nº | Src | Dst | Service | Action | NAT | Log |
+|---|---|---|---|---|---|---|
+| 0 | ssl.root (VPN) | grp-internal | SSH, HTTPS, ICMP | ALLOW | No | All |
+| 1 | grp-trusted-admin | addr-host-pve | HTTPS, SSH | ALLOW | No | All |
+| 2 | grp-trusted-admin | addr-net-servers | SSH, ICMP | ALLOW | No | All |
+| 3 | grp-trusted-admin | addr-net-dmz | ALL | ALLOW | No | All |
+| 4 | addr-net-mgmt | WAN | ALL | ALLOW | Yes | Denied only |
+| 5 | addr-net-servers | WAN | DNS, NTP, HTTPS, HTTP | ALLOW | Yes | All |
+| 6 | addr-net-servers | addr-net-mgmt | NONE | DENY | — | All |
+| 7 | addr-net-dmz | addr-net-servers | (definir P2) | DENY (de momento) | — | All |
+| 8 | addr-net-dmz | WAN | HTTPS, DNS | ALLOW | Yes | All |
+| 9 | addr-net-wifi | grp-internal-all | ALL | DENY | — | All |
+| 10 | addr-net-wifi | WAN | ALL | ALLOW | Yes | Denied only |
+| 99 | ANY | ANY | ANY | DENY | — | All |
+
+**Troubleshooting intencional:**
+- Olvidar implicit deny con logging → tráfico raro sin diagnóstico.
+- Política mal ordenada → reglas específicas deben ir antes de generales.
+- IPs duplicadas entre zonas → conflictos ARP.
+- Pérdida de acceso al FortiGate → recuperación por consola serie.
+
+**Entregable GitHub:** `infrastructure/fortigate/` con policies/, address-objects.md, dhcp-reservations.md, backups/. Documentación en `docs/01-*.md`. Runbook de recuperación.
+
+**LinkedIn:** segmentación perimetral profesional de plataforma IA multi-tenant. Énfasis en least-privilege y logging de denegaciones.
+
+---
+
+### 8.2 Mini-Proyecto 1.2 — SSL-VPN + DDNS
+
+**Duración:** 2 - 2,5 horas
+
+**Objetivo:** acceso remoto al laboratorio sin exponer SSH. SSL-VPN en FortiGate. DDNS para sobrevivir cambios de IP pública del ISP. Validar desde datos móviles.
+
+**Tecnologías:** FortiGate SSL-VPN (tunnel mode), FortiClient VPN, DuckDNS, certificado autofirmado.
+
+**Problema empresarial:** ningún ingeniero de Goloca AI accede a infra desde casa por SSH directo. AI Act EU exige trazabilidad de accesos. Punto único de entrada autenticado.
+
+**Pasos clave:**
+1. Registro en DuckDNS, configuración DDNS en FortiGate vía CLI custom (`config system ddns`).
+2. Verificación `nslookup <DDNS-HOSTNAME>` resuelve a 203.0.113.10.
+3. Crear usuario local `juan.devops`, grupo `grp-vpn-admins`.
+4. Configurar portal SSL-VPN tunnel mode, pool `10.10.99.10-50`.
+5. Listen on WAN1 puerto **10443** (no 443 para evitar conflictos con futuro reverse proxy).
+6. Política firewall 0 (regla VPN → internal).
+7. Configurar DMZ Host en HGU Movistar apuntando a IP del FortiGate (192.168.1.x).
+8. Instalar FortiClient, configurar perfil `goloca-prod`.
+9. Test definitivo: portátil con datos móviles compartidos, conectar VPN, ping a 10.10.0.1.
+
+**Troubleshooting intencional:**
+- CGNAT no detectado → fallback a Cloudflare Tunnel.
+- Port forwarding del HGU mal configurado → telnet fail desde fuera.
+- DDNS no actualiza al cambiar IP → revisar event log.
+- MTU del túnel demasiado alto → SSH cuelga en transferencias grandes.
+
+**Entregable GitHub:** `infrastructure/fortigate/ssl-vpn/`, `runbooks/02-vpn-troubleshooting.md`.
+
+**LinkedIn:** acceso remoto sin SSH directo. Discusión sobre VPN tradicional vs Zero Trust. Justificación regulatoria (AI Act).
+
+---
+
+### 8.3 Mini-Proyecto 1.3 — Proxmox VE Bare-Metal
+
+**Duración:** 2,5 - 3 horas
+
+**Objetivo:** PC servidor convertido en hipervisor Proxmox VE. Almacenamiento dividido (sistema NVMe1, VMs NVMe2/SSD, backups HDD). Red puenteada al FortiGate. Repos no-subscription.
+
+**Tecnologías:** Proxmox VE 8.x, KVM/QEMU, LVM-Thin, Linux Bridge.
+
+**Problema empresarial:** Goloca AI no opera sobre Windows. Necesidad de hipervisor reproducible operable por CLI. Proxmox = alternativa estándar a VMware tras adquisición Broadcom.
+
+**Pasos clave:**
+1. Backup de datos previos del Windows Server actual.
+2. ISO Proxmox VE más reciente + USB booteable (Rufus en modo imagen DD).
+3. BIOS: VT-x, VT-d/IOMMU habilitados, UEFI, Secure Boot off.
+4. Instalación en NVMe 240 GB #1 con `ext4`. Hostname `pve-prod-01.goloca.lab`. IP `10.20.0.10/24`, gw `10.20.0.1`, DNS `10.10.0.1`.
+5. Verificación acceso https://10.20.0.10:8006.
+6. Cambio a repos `no-subscription`. `apt full-upgrade`.
+7. **Storage adicional:**
+   - NVMe2 240 GB → LVM-thin `local-lvm-nvme` (VMs críticas)
+   - SSD 500 GB → LVM-thin `local-lvm-ssd` (VMs secundarias)
+   - HDD 1 TB → directorio `/mnt/backup` montado, storage tipo `directory` llamado `backup` (Content: VZDump, ISO, Snippets)
+8. Bridge `vmbr0` puenteado a la NIC física (verificar en `/etc/network/interfaces`).
+9. Descarga imagen cloud Ubuntu 24.04 (`ubuntu-24.04-server-cloudimg-amd64.img`) a `/var/lib/vz/template/iso/`.
+10. Hardening básico SSH del propio Proxmox (puerto 2222, sin password, sin root login).
+
+**Troubleshooting intencional:**
+- VT-d off → P6 imposible (GPU passthrough).
+- Red mal configurada → recuperación solo por consola física.
+- Repo enterprise activo → `apt update` falla 401.
+- ISO en `local-lvm` → no arranca VMs (content type incorrecto).
+
+**Entregable GitHub:** `infrastructure/proxmox/` con network/, ssh/, post-install/. `docs/03-*.md`.
+
+**LinkedIn:** PC convertido en hipervisor profesional. Decisiones: KVM vs vSphere, LVM-thin vs ZFS, bare-metal vs nested.
+
+---
+
+### 8.4 Mini-Proyecto 1.4 — Template Ubuntu + Cloud-Init
+
+**Duración:** 2 - 2,5 horas
+
+**Objetivo:** plantilla golden Ubuntu 24.04 LTS con cloud-init. VMs nuevas listas en <90 segundos. Aprovisionar `bastion-prod-01` y `app-prod-01`.
+
+**Tecnologías:** Proxmox templates, cloud-init NoCloud datasource, qemu-guest-agent, Netplan.
+
+**Problema empresarial:** aprovisionamiento manual inaceptable. Base mental para IaC (Terraform en P5).
+
+**Pasos clave:**
+1. `apt install cloud-image-utils libguestfs-tools` en Proxmox.
+2. `virt-customize -a ubuntu-...img --install qemu-guest-agent`.
+3. Crear VM 9000 con `qm create`, importar disco a `local-lvm-nvme`, configurar cloudinit drive.
+4. `qm template 9000`.
+5. Crear snippet `user-data-default.yaml` con usuario `ubuntu`, claves SSH públicas, paquetes base, hardening SSH inicial.
+6. Habilitar content "Snippets" en storage `local`.
+7. Clonar a VMID 110 (`bastion-prod-01`), recursos 1 vCPU/2GB/20GB, IP `10.20.0.40/24` (provisional en SERVERS hasta migración futura).
+8. Clonar a VMID 120 (`app-prod-01`), recursos 2 vCPU/4GB/40GB, IP `10.20.0.20/24`.
+9. Validación: SSH sin password con clave, `cloud-init status: done`, `hostnamectl`, `ip a`.
+
+**Troubleshooting intencional:**
+- Sin qemu-guest-agent → no IP en UI, sin backups consistentes en caliente.
+- Linked clone vs full → si borras el template, clones rotos.
+- IP duplicada → ARP conflict.
+- Snippet sin permisos correctos → cloud-init silenciosamente ignorado.
+
+**Entregable GitHub:** `infrastructure/proxmox/templates/`, `infrastructure/proxmox/cloud-init/`, `infrastructure/proxmox/vms/`. Script `create-ubuntu-template.sh`.
+
+**LinkedIn:** plantilla golden, aprovisionamiento <90s. Patrón mental antes de Terraform.
+
+---
+
+### 8.5 Mini-Proyecto 1.5 — Bastion Host + VS Code Remote SSH
+
+**Duración:** 1,5 - 2 horas
+
+**Objetivo:** flujo definitivo de trabajo. Workstation → bastión → app via VS Code Remote SSH con ProxyJump. Auth exclusiva por clave Ed25519.
+
+**Tecnologías:** OpenSSH (cliente Windows + servidor Linux), VS Code Remote SSH, ProxyJump.
+
+**Problema empresarial:** en Goloca AI, servidores de aplicación no accesibles directamente. Bastión = único host con SSH expuesto a la red de gestión. Patrón análogo a AWS SSM Session Manager.
+
+**Pasos clave:**
+1. Generar claves Ed25519 separadas para PC Windows y portátil.
+2. Actualizar `user-data-default.yaml` con claves públicas reales.
+3. Recrear VMs 110 y 120 (patrón destroy-and-recreate sobre modify-in-place).
+4. Hardening SSH adicional en cada VM (`/etc/ssh/sshd_config.d/99-goloca.conf`):
+   - Port 2222
+   - PasswordAuthentication no
+   - PermitRootLogin no
+   - AllowUsers ubuntu
+   - MaxAuthTries 3
+   - ClientAliveInterval 300
+5. SSH config en workstation con entradas `goloca-bastion`, `goloca-app01` (con ProxyJump), `goloca-pve`.
+6. VS Code Remote SSH connect a `goloca-app01`.
+7. Validación de aislamiento: SSH directo desde fuera de MGMT debe fallar.
+
+**Troubleshooting intencional:**
+- Permisos `~/.ssh` mal en Windows → permission denied.
+- Cliente OpenSSH antiguo no soporta ProxyJump.
+- Política firewall solo permite TCP 22 cuando movimos a 2222.
+- VS Code server falla por falta de glibc/wget en host destino.
+
+**Entregable GitHub:** `infrastructure/linux-baseline/sshd_config.d/99-goloca.conf`. `docs/05-*.md`. Runbook de onboarding de nuevo ingeniero.
+
+**LinkedIn:** bastión + ProxyJump. Equivalente a SSM Session Manager. Trazabilidad de accesos.
+
+---
+
+### 8.6 Mini-Proyecto 1.6 — Linux Baseline + Docker
+
+**Duración:** 2,5 - 3 horas
+
+**Objetivo:** `bastion-prod-01` y `app-prod-01` en estado base auditable. Hardening, journald persistente, parcheo automático, UFW en capas, herramientas de operación, Docker Engine en `app-prod-01`.
+
+**Tecnologías:** systemd/journalctl, UFW, unattended-upgrades, Docker Engine (desde repo oficial), herramientas (htop, iotop, iftop, tcpdump, jq, etc.).
+
+**Problema empresarial:** VM por cloud-init no es operable en producción. Hardening + observabilidad + parcheo controlado = baseline auditable.
+
+**Pasos clave bastión:**
+1. `apt full-upgrade`, verificación timedatectl.
+2. Journald persistente: `/etc/systemd/journald.conf.d/99-goloca.conf` con `Storage=persistent`, `SystemMaxUse=2G`, `MaxRetentionSec=30day`.
+3. Unattended-upgrades para `${distro_id}:${distro_codename}-security`, `Automatic-Reboot "false"` (decisión documentada).
+4. UFW: default deny in, allow SSH desde 10.10.0.0/24 y 10.10.99.0/24 a TCP 2222. **Crítico: permitir SSH antes de habilitar UFW**.
+5. Herramientas: htop, iotop, iftop, tcpdump, dnsutils, net-tools, jq, fail2ban (sin configurar aún).
+6. Snapshot Proxmox: `qm snapshot 110 baseline-clean`.
+
+**Pasos clave app:**
+7. Repite pasos 1-6 con UFW ajustado: allow SSH desde 10.20.0.40 (bastión) y 10.10.99.0/24 (VPN).
+8. Instalación Docker Engine desde `download.docker.com` (no `apt install docker.io`).
+9. `usermod -aG docker ubuntu`.
+10. Validación: `docker run --rm hello-world`, `docker info`.
+11. Snapshot: `qm snapshot 120 baseline-with-docker`.
+
+**Troubleshooting intencional:**
+- UFW sin allow SSH → pérdida de acceso. Recuperación dolorosa (consola Proxmox, single-user mode).
+- Journald no persistente → logs evaporados tras reboot.
+- Docker reescribe iptables → contenedores expuestos pese a UFW. Patrón a corregir en P2.
+- `apt full-upgrade` instala nuevo kernel sin reboot → sigues vulnerable.
+- `/var/lib/docker` se llena → contenedores fallan.
+
+**Entregable GitHub:** `infrastructure/linux-baseline/` con baseline-setup.sh, ufw-rules-*.sh, journald-config/, unattended-upgrades/. `infrastructure/docker/install-docker-ubuntu.sh`. Runbooks de bootstrap y recovery.
+
+**LinkedIn:** dos VMs endurecidas listas para contenedores. Firewall en capas (FortiGate + UFW), journald persistente, parcheo controlado, Docker oficial. Reflexión sobre grupo docker = root.
+
+---
+
+## 9. ESTRUCTURA DEL REPOSITORIO GITHUB
+
+```
+goloca-platform/
+├── README.md                              # Visión general, estado, diagramas
+├── ROADMAP.md                             # Este documento (versión sintetizada)
+├── docs/
+│   ├── 01-network-architecture.md
+│   ├── 01-vlan-zoning-rationale.md
+│   ├── 01-firewall-policy-matrix.md
+│   ├── 02-remote-access-architecture.md
+│   ├── 02-ddns-rationale.md
+│   ├── 02-ssl-vpn-design.md
+│   ├── 03-proxmox-architecture-decision.md
+│   ├── 03-proxmox-install-runbook.md
+│   ├── 03-storage-design.md
+│   ├── 04-vm-provisioning-strategy.md
+│   ├── 04-cloud-init-rationale.md
+│   ├── 04-vm-inventory.md
+│   ├── 05-bastion-host-pattern.md
+│   ├── 05-ssh-key-management.md
+│   ├── 05-developer-workflow.md
+│   ├── 06-linux-baseline-spec.md
+│   ├── 06-hardening-checklist.md
+│   ├── 06-docker-installation.md
+│   ├── 06-defense-in-depth-rationale.md
+│   └── diagrams/
+│       ├── physical-topology.txt
+│       └── network-flow.md
+├── infrastructure/
+│   ├── fortigate/
+│   │   ├── address-objects.md
+│   │   ├── dhcp-reservations.md
+│   │   ├── policies/
+│   │   ├── ssl-vpn/
+│   │   └── backups/                       # Configs sanitizadas
+│   ├── proxmox/
+│   │   ├── network/
+│   │   ├── ssh/
+│   │   ├── post-install/
+│   │   ├── templates/
+│   │   ├── cloud-init/
+│   │   └── vms/
+│   ├── linux-baseline/
+│   │   ├── baseline-setup.sh
+│   │   ├── ufw-rules-bastion.sh
+│   │   ├── ufw-rules-app.sh
+│   │   ├── sshd_config.d/
+│   │   ├── journald-config/
+│   │   └── unattended-upgrades/
+│   └── docker/
+│       └── install-docker-ubuntu.sh
+└── runbooks/
+    ├── 01-fortigate-recovery.md
+    ├── 02-vpn-troubleshooting.md
+    ├── 02-ddns-failover.md
+    ├── 03-proxmox-recovery.md
+    ├── 04-vm-provisioning.md
+    ├── 05-onboarding-new-engineer.md
+    ├── 06-host-bootstrap.md
+    └── 06-host-recovery.md
+```
+
+---
+
+## 10. DEUDAS TÉCNICAS RECONOCIDAS
+
+Documentadas para mostrar madurez técnica. Cada una tiene un plan de resolución en proyectos futuros.
+
+| ID | Deuda | Resolución prevista |
+|---|---|---|
+| DT-01 | Bastión en zona SERVERS en lugar de MGMT | Migración cuando llegue adaptador USB-Ethernet (5 min) |
+| DT-02 | Switch DGS-1005P no gestionable | Sustitución por TP-Link TL-SG108E o similar (~25 €) cuando el lab exceda 4 zonas |
+| DT-03 | Proxmox repos no-subscription | En producción real → suscripción de pago |
+| DT-04 | Usuarios VPN locales (no LDAP/AD) | P6: integración con IdP (Authentik, Keycloak, o AWS IAM Identity Center) |
+| DT-05 | Doble NAT (HGU + FortiGate) | Opcional: HGU en monopuesto si no se usa IPTV |
+| DT-06 | Certificado VPN autofirmado | P6: Let's Encrypt via acme.sh para el FortiGate |
+| DT-07 | Usuario en grupo docker = root | P3: migración a Kubernetes con RBAC. P6: estudio de rootless Docker. |
+| DT-08 | Sin Fail2ban configurado en P1 | P6: Fail2ban en bastión + integración con FortiGate Address Groups dinámicos |
+| DT-09 | Sin gestión centralizada de secretos | P6: HashiCorp Vault on-premise + AWS Secrets Manager en cloud |
+| DT-10 | Sin backups automatizados de VMs | P4-P6: `vzdump` programado + sincronización a HDD + sync a S3 |
+
+---
+
+## 11. CRITERIOS DE FINALIZACIÓN DEL ROADMAP
+
+Al cerrar los 6 proyectos, el aprendiz tendrá:
+
+1. **Portfolio público en GitHub** con 6 proyectos documentados, diagramas, runbooks y troubleshooting real.
+2. **Infraestructura funcional** que puede mostrar en vivo en una entrevista (laboratorio operativo).
+3. **Stack defendible** alineado con startups IA tipo A.
+4. **Narrativa diferenciadora:** modo soberano con LLM local + cloud híbrido + multi-tenancy real.
+5. **Capacidad demostrable** de:
+   - Diseñar segmentación de red real
+   - Configurar Linux endurecido desde cero
+   - Operar Kubernetes en producción
+   - Construir pipelines CI/CD con escaneo de seguridad
+   - Desplegar observabilidad de extremo a extremo
+   - Provisionar AWS con Terraform
+   - Implementar disaster recovery
+   - Operar GPUs para serving de LLM
+
+---
+
+## 12. METODOLOGÍA DEL MENTOR
+
+Reglas operativas que rigen todas las interacciones de aprendizaje:
+
+1. **Cada decisión técnica se justifica con trade-offs**, no con "porque sí".
+2. **Cada mini-proyecto incluye troubleshooting intencional**: el aprendiz rompe cosas a propósito para aprender a diagnosticarlas.
+3. **Validación obligatoria** después de cada despliegue: DNS, conectividad, certificados, permisos, logs, métricas, healthchecks.
+4. **Nada se introduce sin necesidad real**: cada nueva tecnología se justifica con un problema concreto que la actual no resuelve.
+5. **Documentación profesional desde el día 1**: README, diagramas, runbooks, justificación de decisiones.
+6. **Reutilización constante**: lo del proyecto N se usa en el proyecto N+1.
+7. **Producción real, no laboratorios artificiales**: persistencia, backups, observabilidad, seguridad básica, recuperación.
+
+### 12.1 MODO GUIADO PASO A PASO (REGLA OPERATIVA CRÍTICA)
+
+Esta es la regla más importante para todas las interacciones de ejecución del roadmap. Sobrescribe cualquier instinto del mentor de "entregar el mini-proyecto completo de golpe".
+
+**Reglas obligatorias del modo guiado:**
+
+1. **Un paso = una acción concreta y verificable.** El mentor entrega un único paso a la vez, no una lista completa de comandos ni un bloque entero de configuración. El aprendiz ejecuta, valida, y solo entonces se entrega el siguiente paso.
+
+2. **Nada se da por sentado.** El mentor NO asume que el aprendiz sabe:
+   - Cómo encender o resetear un equipo
+   - Dónde están los botones físicos
+   - Qué cables conectar y a qué puertos exactos
+   - Cómo acceder a la BIOS, a una consola serie, a una UI web por primera vez
+   - Qué credenciales por defecto tiene un equipo
+   - Cómo se ve una pantalla, un menú, una respuesta esperada
+   - Cualquier conocimiento que no se haya verificado explícitamente en una sesión anterior
+
+3. **Antes de cada paso, el mentor explica:**
+   - **Qué se va a hacer** en una frase clara
+   - **Por qué** ese paso es necesario (vinculación al objetivo de Goloca AI)
+   - **Cómo hacerlo** con instrucciones físicas/lógicas detalladas (botones, cables, comandos)
+   - **Qué resultado esperar** para que el aprendiz sepa si funcionó
+   - **Qué hacer si no funciona** (al menos las 2-3 causas más comunes)
+
+4. **Después de cada paso, el aprendiz reporta el resultado.**
+   - Si el resultado coincide con el esperado → el mentor confirma y entrega el siguiente paso.
+   - Si el resultado NO coincide → el mentor diagnostica antes de avanzar. Nunca se avanza sobre un paso que no ha funcionado.
+
+5. **El aprendiz puede preguntar en cualquier momento.** Si dice "no entiendo X", "no encuentro Y", "qué cable es Z", el mentor responde con detalle antes de avanzar. Las preguntas no son interrupciones, son parte del flujo.
+
+6. **El aprendiz tiene autonomía para pedir más contexto.** Si en algún momento dice "ahora explícame todo este bloque entero antes de seguir", el mentor cambia temporalmente a modo explicativo y luego vuelve al modo guiado.
+
+7. **Granularidad de los pasos según el aprendiz.** Por defecto, el mentor entrega pasos pequeños (1 acción, 1-3 minutos de ejecución). Si el aprendiz indica "puedo hacer pasos más grandes", se ajusta. Si dice "más pequeño", también.
+
+8. **Recordatorios y resúmenes intermitentes.** Cada cierto número de pasos (típicamente cada 5-7), el mentor hace un resumen breve del progreso dentro del mini-proyecto, indicando qué se ha hecho, qué queda, y dónde estamos en el roadmap general.
+
+9. **Sin saltos al siguiente mini-proyecto sin verificación de cierre.** Al finalizar un mini-proyecto, el mentor presenta una checklist de verificación final con todos los criterios del entregable. Solo cuando todos están en verde, se inicia el siguiente.
+
+10. **Estado persistente.** El mentor debe mantener consciencia de en qué paso exacto del roadmap está el aprendiz en cualquier momento de la conversación. Si el aprendiz vuelve después de días, el mentor debe poder recuperar el contexto preguntando "¿en qué paso te quedaste?".
+
+**Ejemplo de paso bien formulado vs mal formulado:**
+
+❌ **MAL (modo "tutorial"):**
+> "Resetea el FortiGate, accede vía 192.168.1.99, cambia la contraseña, configura el hostname, NTP y zona horaria."
+
+✅ **BIEN (modo guiado):**
+> **Paso 1.1.1 — Reset físico del FortiGate**
+>
+> **Qué:** vamos a borrar cualquier configuración previa del FortiGate y dejarlo en estado de fábrica.
+>
+> **Por qué:** no sabes qué configuración tiene ahora ni cuál era la contraseña anterior. Empezar limpio elimina sorpresas.
+>
+> **Cómo:**
+> 1. Asegúrate de que el FortiGate **NO está conectado a la corriente todavía**. Si está enchufado, desconéctalo.
+> 2. Localiza el botón de **RESET** en el equipo. Está en el panel trasero, es un agujerito pequeño que requiere un clip o un palillo para presionarlo. NO es ninguno de los botones grandes de la parte frontal.
+> 3. ¿Lo has encontrado? Confírmame antes de seguir.
+>
+> **Resultado esperado:** simplemente confirmas que lo ves. Aún no hacemos nada.
+>
+> **Si no lo encuentras:** dime qué modelo exacto pone en la pegatina del equipo y te paso una foto/referencia.
+
+11. **Foto / captura de pantalla bajo petición.** Si el aprendiz pide aclaración visual ("¿este es el botón?", "¿la pantalla debe verse así?"), el mentor puede sugerir buscar imágenes oficiales o describir con más detalle. El aprendiz también puede pegar capturas de su propia pantalla para verificación.
+
+12. **No mezclar fases.** Si el paso actual es físico (cablear, pulsar botón), no se intercala con configuración lógica (comandos, UI). Cada paso es una sola naturaleza de acción.
+
+---
+
+## 13. PRÓXIMOS PASOS INMEDIATOS
+
+### Estado de decisiones (todas cerradas)
+
+| Decisión | Valor |
+|---|---|
+| Switch | Opción B — segmentación por puertos físicos del FortiGate |
+| Hipervisor | Proxmox VE 8.x bare-metal en PC servidor |
+| CGNAT | No hay (IP pública 203.0.113.10 directa) |
+| ISP | Movistar HGU 6+ años → DMZ Host hacia FortiGate |
+| Empresa ficticia | Goloca AI (Plataforma de Agentes IA Empresariales) |
+| Bastión MGMT | Provisional en SERVERS, migración futura con adaptador USB-Ethernet |
+| Almacenamiento | LVM-thin sobre discos individuales (NVMe1 sistema, NVMe2 críticas, SSD secundarias, HDD backups) |
+| Metodología de ejecución | **Modo guiado paso a paso** (ver sección 12.1) |
+
+### Siguiente acción
+
+Arrancar **Mini-Proyecto 1.1** en modo guiado paso a paso. El mentor entrega el primer paso (reset físico del FortiGate, que actualmente está apagado y sin configurar) y espera confirmación antes de avanzar.
+
+### Estado de progreso del aprendiz
+
+> Esta sección se actualiza dinámicamente conforme el aprendiz avanza. Sirve para que el mentor (en cualquier sesión futura, incluso días después) pueda retomar el contexto exacto.
+
+- **Proyecto actual:** P1 — Infraestructura Base
+- **Mini-proyecto actual:** 1.1 — Segmentación de Red con FortiGate 30E
+- **Paso actual:** Pre-arranque (FortiGate apagado, pendiente reset físico)
+- **Bloqueos conocidos:** ninguno
+- **Última sesión:** [a actualizar tras la primera sesión guiada]
+
+---
+
+## 14. CHANGELOG
+
+| Versión | Fecha | Cambios |
+|---|---|---|
+| 1.0 | 21 mayo 2026 | Versión inicial. Decisiones cerradas tras debate de empresa, hardware y networking. |
+| 1.2 | 21 mayo 2026 | Renombrado empresa ficticia de GOLOCA AI a Goloca AI. Actualizado naming completo: repo, dominio, hostnames, DDNS, configs. |
+| 1.1 | 21 mayo 2026 | Añadida sección 12.1 (**Modo Guiado Paso a Paso**) como regla operativa crítica del mentor. Actualizada sección 13 con tracking de progreso dinámico. El roadmap ahora se ejecuta paso a paso con verificación tras cada acción, sin asumir conocimiento previo sobre acciones físicas (encendido, reset, cableado) ni interfaces específicas. |
