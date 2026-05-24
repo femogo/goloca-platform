@@ -8,10 +8,11 @@
 
 ## ESTADO GLOBAL ACTUAL
 
-**Fecha última actualización:** 24 mayo 2026 (v1.3 — fin sesión 4)  
+**Fecha última actualización:** 24 mayo 2026 (v1.4 — fin sesión 5)  
 **Proyecto activo:** P1 — Infraestructura Base, Networking Real y Virtualización  
 **Mini-proyecto activo:** P1.1 — Segmentación FortiGate (bloqueado por cable; siguiente cuando llegue)  
-**Mini-proyectos bloqueados:** P1.1 y P1.2 (FortiGate, esperando cable de consola)
+**Mini-proyectos bloqueados:** P1.1 y P1.2 (FortiGate, esperando cable de consola)  
+**Foco sesión 5:** consolidación del portfolio en GitHub (docs P1.3/P1.6 + runbooks S4). Sin avance de infraestructura (no dependía del FortiGate).
 
 ---
 
@@ -175,6 +176,42 @@
 
 6. **Snapshots de estado baseline creados** (ver tabla en sección de snapshots).
 
+### Sesión 5 — 24 mayo 2026
+
+**Duración:** ~2,5 horas.  
+**Naturaleza:** sesión de consolidación de portfolio. CERO avance de infraestructura física (FortiGate sigue bloqueado por cable). Todo el trabajo fue versionado, documentación y runbooks. Objetivo: poner a salvo en GitHub las ~6 horas de trabajo de S3+S4 y construir el contenido de portfolio que estaba ausente.
+
+**Trabajo realizado:**
+
+1. **Diagnóstico del estado real de Git (corrección de premisa falsa).** El plan de la sesión asumía "todo S3+S4 sin subir". El diagnóstico (`git status`, `git log`, `git ls-files`) reveló que **era falso**: el repo ya tenía 4 commits, incluido `Terminado 1.6` con `baseline-setup.sh` y `PROGRESS-LOG` v1.3 ya subidos. El dato "Commits en GitHub: 1 (initial)" del propio log estaba **desactualizado**. Lección operacional: verificar el estado real antes de actuar sobre lo que se asume. Se perdieron los primeros pasos de la sesión diagnosticando algo ya hecho — justamente por confiar en una bitácora desfasada.
+
+2. **Hallazgo real:** lo que faltaba NO era subir código, sino que las carpetas `docs/` y `runbooks/` estaban **vacías** (solo `.gitkeep`). El agujero del portfolio no era versionado, era documentación inexistente. Replanteado el peso de la sesión: el grueso pasó a ser escritura de docs/runbooks, no `git push`.
+
+3. **Bloque docs — 6 documentos de P1.3 + P1.6 escritos y subidos** (`docs/`, commit `fb0133a`):
+   - `03-storage-design.md` — diseño de almacenamiento, LVM-thin vs ZFS, incidente de sobreaprovisionamiento del thin-pool (D-10).
+   - `03-proxmox-architecture-decision.md` — Proxmox vs Hyper-V vs VMware, bare-metal vs nested.
+   - `06-linux-baseline-spec.md` — 6 piezas del baseline, incidente SSH (DT-17), script parametrizado.
+   - `06-hardening-checklist.md` — checklist verificable de endurecimiento.
+   - `06-docker-installation.md` — repo oficial vs docker.io, validación NGINX, docker=root.
+   - `06-defense-in-depth-rationale.md` — racional de las 4 capas de seguridad.
+   - Formato: front-matter + contexto Goloca AI + decisión + trade-offs + diagrama + incidente + validación + deuda técnica. Tono de mentor con criterio explícito. Cross-links entre docs (uno apunta a `01-network-architecture.md`, aún inexistente — link planificado, no roto).
+
+4. **`.gitattributes` añadido** (commit `243f3f3`). Detectado warning CRLF al hacer `git add` desde Windows. Verificado que `baseline-setup.sh` NO estaba dañado (`i/lf w/lf`). Creado `.gitattributes` que fuerza LF en `.sh`/`.yaml`/`.conf`/`Dockerfile`/`.service` (archivos que se ejecutan en Linux), CRLF en `.ps1`/`.bat`, binarios intactos. Es la solución portable (viaja con el repo) frente a `core.autocrlf` (por máquina). Repo renormalizado con `git add --renormalize .`.
+
+5. **Bloque runbooks — 5 runbooks operacionales de S4 escritos y subidos** (`runbooks/`, commit `1a48d88`):
+   - `06-vm-ssh-recovery-guestfish.md` — rescate de SSH editando disco offline (la joya del portfolio).
+   - `06-systemd-enable-offline.md` — enable de servicio vía symlink manual en disco offline.
+   - `03-storage-move-disk.md` — migración de disco entre pools (`qm move-disk`).
+   - `06-ufw-remote-safe-apply.md` — UFW remoto con red de seguridad (`nohup sleep`).
+   - `06-docker-install-validate.md` — Docker desde repo oficial + validación.
+   - Formato autocontenido (ejecutables bajo presión sin leer nada más): síntoma → cuándo usar/no usar → precondiciones → procedimiento numerado → checklist → trampas comunes. Nomenclatura con prefijo de mini-proyecto, coherente con `docs/`.
+
+6. **Estado del repo tras la sesión:** estructura `docs/` (6) + `runbooks/` (5) + `.gitattributes` + `baseline-setup.sh`, todo en `origin/main`. El portfolio de P1.3/P1.6 pasa de inexistente a completo.
+
+**Lo que esta sesión NO hizo (deliberadamente):**
+- No se adelantó P2: la parte de red (NGINX DMZ) se reharía tras la migración a `10.x`. Trabajo que se tiraría.
+- No se extrajeron de las VMs las configs reales (`sshd_config.d`, cloud-init, ufw-rules) a archivos versionados. Pendiente: requiere SSH a VMs vivas, de menor valor de portfolio que los docs. Tarea atada para próxima sesión.
+
 ---
 
 ## DESVIACIONES DEL PLAN ORIGINAL
@@ -284,12 +321,21 @@ Cambios respecto a lo que dice `ROADMAP.md`:
    - VMs 110/120: reconfigurar `ipconfig0` a 10.20.0.x. Reconfigurar `~/.ssh/config` en Windows.
    - **Endurecer reglas UFW (DT-21):** bastion → `10.10.0.0/24`+`10.10.99.0/24`; app01 → `10.20.0.40`+`10.10.99.0/24`.
 
-### Pendiente de subir a GitHub (acumulado de S3+S4)
-- `PROGRESS-LOG.md` v1.3.
-- `infrastructure/linux-baseline/baseline-setup.sh`.
-- Trabajo P1.4/P1.5 (template, cloud-init, sshd_config.d).
-- Runbooks nuevos (especialmente los 5 de S4).
-- Docs de P1.3 (storage-design) y P1.6 (linux-baseline-spec, hardening-checklist, docker-installation).
+### Subido a GitHub en sesión 5
+- ✅ `docs/` — 6 documentos de P1.3 + P1.6 (commit `fb0133a`).
+- ✅ `.gitattributes` — control de line endings (commit `243f3f3`).
+- ✅ `runbooks/` — 5 runbooks operacionales de S4 (commit `1a48d88`).
+- ✅ `baseline-setup.sh` y `PROGRESS-LOG` v1.3 — ya estaban subidos desde S4 (el log v1.3 los daba por pendientes; era dato erróneo).
+
+### Pendiente de subir a GitHub (lo que queda)
+- `PROGRESS-LOG.md` v1.4 (este archivo, esta sesión).
+- **Configs reales extraídas de las VMs** (no existen como archivos versionados, viven solo dentro de las VMs):
+  - `infrastructure/proxmox/cloud-init/user-data-default.yaml`
+  - `infrastructure/linux-baseline/sshd_config.d/00-goloca.conf`
+  - `infrastructure/linux-baseline/ufw-rules-*.sh`, `journald-config/`, `unattended-upgrades/`
+  - `infrastructure/docker/install-docker-ubuntu.sh`
+  - Requiere SSH a VMs vivas (bastion/app01) + ProxyJump operativo.
+- Docs/runbooks de P1.4 y P1.5 (provisioning, ProxyJump, VS Code) — aún no escritos.
 
 ### Cuando empiece P2
 - Probar `baseline-setup.sh` sobre VM limpia (db-prod-01) → validar reproducibilidad real.
@@ -311,6 +357,10 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 24-may | **Baseline pieza a pieza (no script directo)** | **Didáctico: entender cada elemento antes de automatizar** |
 | 24-may | **Script parametrizado por args (opción A, no 2 copias)** | **Un artefacto, evita reintroducir DT-20. Traduce limpio a Ansible en P5** |
 | 24-may | **No ejecutar baseline-setup.sh sobre VMs actuales** | **Ya tienen baseline a mano. Probar en VM limpia (P2/P3) tiene más valor** |
+| 24-may (S5) | **No adelantar P2 en esta sesión** | **La red DMZ de P2 se reharía tras migrar a 10.x. Consolidar portfolio P1 en su lugar** |
+| 24-may (S5) | **Docs con trade-offs explícitos (no specs secas)** | **Diferenciador de portfolio: el "por qué" separa criterio de tutorial copiado** |
+| 24-may (S5) | **`.gitattributes` en repo (no `core.autocrlf`)** | **Portable: viaja con el repo, protege cualquier clon. Crítico Windows dev → Linux infra** |
+| 24-may (S5) | **Runbooks autocontenidos (no enlazan a docs)** | **Documento de emergencia: debe funcionar solo, bajo presión, sin abrir nada más** |
 
 ---
 
@@ -322,7 +372,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Mini-proyectos P1 bloqueados | 2 (P1.1, P1.2 — cable) |
 | Avance porcentual P1 | ~67% |
 | Avance global roadmap | ~11% |
-| Commits en GitHub | 1 (initial) — pendiente subir S3+S4 |
+| Commits en GitHub | 7 (initial ×2, estructura, log S1-3, Terminado 1.6, docs P1.3/P1.6, .gitattributes, runbooks) — `main` al día |
 | Deudas técnicas registradas | 22 (DT-01 a DT-22) |
 | Deudas técnicas resueltas | 7 (DT-11,14,16,17,18,19,20) |
 | Desviaciones del plan | 11 (D-01 a D-11) |
@@ -331,6 +381,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Snapshots activos | 4 (2 por VM) |
 | Incidentes mayores resueltos | 1 (pérdida SSH ambas VMs — DT-17) |
 | Entregables de código | 1 (`baseline-setup.sh`, 142 líneas, idempotente) |
+| Documentos de portfolio (docs/) | 6 (P1.3 ×2, P1.6 ×4) |
+| Runbooks operacionales (runbooks/) | 5 (S4: guestfish, systemd offline, move-disk, UFW, Docker) |
 
 ---
 
@@ -342,6 +394,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 2026-05-22 | 1.1 | Detalle de storages LVM paso a paso. DT-16. Métricas. |
 | 2026-05-23 | 1.2 | Sesión 3. P1.4 y P1.5 cerrados. Hardening SSH, ProxyJump, VS Code. D-07/08/09, DT-17/18/19/20. |
 | 2026-05-24 | 1.3 | Sesión 4. **P1.3 cerrado 100%** (DT-11/14/16). **Incidente mayor SSH** (DT-17 mal cerrado, rescate guestfish ambas VMs). **Migración almacenamiento** local-lvm→nvme1 (D-10). **P1.6 completo** (baseline 6 piezas + Docker). **`baseline-setup.sh`** (cierra DT-19/20). DT-21/22 nuevas. P1 al 67%, global ~11%. 7 deudas resueltas. |
+| 2026-05-24 | 1.4 | Sesión 5 (consolidación de portfolio, sin avance de infra). Corregido dato falso de commits (eran 7, no 1). **6 docs de P1.3/P1.6** subidos (`fb0133a`). **`.gitattributes`** para line endings Windows→Linux (`243f3f3`). **5 runbooks operacionales de S4** subidos (`1a48d88`). `docs/` y `runbooks/` pasan de vacías a pobladas. Pendiente: extraer configs reales de las VMs a archivos versionados. |
 
 ---
 
