@@ -8,11 +8,11 @@
 
 ## ESTADO GLOBAL ACTUAL
 
-**Fecha última actualización:** 24 mayo 2026 (v1.4 — fin sesión 5)  
+**Fecha última actualización:** 27 agosto 2026 (v1.5 — fin sesión 6)  
 **Proyecto activo:** P1 — Infraestructura Base, Networking Real y Virtualización  
-**Mini-proyecto activo:** P1.1 — Segmentación FortiGate (bloqueado por cable; siguiente cuando llegue)  
-**Mini-proyectos bloqueados:** P1.1 y P1.2 (FortiGate, esperando cable de consola)  
-**Foco sesión 5:** consolidación del portfolio en GitHub (docs P1.3/P1.6 + runbooks S4). Sin avance de infraestructura (no dependía del FortiGate).
+**Mini-proyecto activo:** P1.1 — Segmentación FortiGate (cable de consola ya disponible, ejecución aún no iniciada)  
+**Mini-proyectos bloqueados:** ninguno (el bloqueador del cable se resolvió; queda pendiente de agenda)  
+**Foco sesión 6:** reconexión tras 3 meses de inactividad. Auditoría completa del estado real de Proxmox (discos, VMs, LXC, GPU) y reconciliación contra lo documentado. Detectada deriva no registrada: un LXC ajeno al roadmap ("ia-gpu") ocupa el SSD Samsung y comparte la GPU a nivel de host. Recalculado el plan de almacenamiento para el resto del roadmap. Sin avance de infraestructura del propio roadmap (FortiGate sigue sin configurar).
 
 ---
 
@@ -20,14 +20,14 @@
 
 | Mini-Proyecto | Estado | Bloqueador |
 |---|---|---|
-| P1.1 — Segmentación FortiGate | ⏸️ BLOQUEADO | Cable de consola en pedido |
+| P1.1 — Segmentación FortiGate | ⏸️ PENDIENTE DE EJECUCIÓN | Ninguno (cable de consola ya llegó) |
 | P1.2 — SSL-VPN + DDNS | ⏸️ PENDIENTE | Depende de P1.1 |
 | P1.3 — Proxmox VE bare-metal | ✅ COMPLETADO | Cerrado 100% (DT-11/14/16 saldadas) |
 | P1.4 — Template Ubuntu + Cloud-Init | ✅ COMPLETADO | — |
 | P1.5 — Bastión + VS Code Remote SSH | ✅ COMPLETADO | — |
 | P1.6 — Linux baseline + Docker | ✅ COMPLETADO | Cerrado en sesión 4 |
 
-**P1 al 67% (4 de 6 mini-proyectos).** Solo restan P1.1 y P1.2, ambos dependientes del cable de consola del FortiGate.
+**P1 al 67% (4 de 6 mini-proyectos).** Solo restan P1.1 y P1.2. El bloqueador original (cable de consola) ya no existe — falta agendar la ejecución.
 
 ---
 
@@ -212,6 +212,39 @@
 - No se adelantó P2: la parte de red (NGINX DMZ) se reharía tras la migración a `10.x`. Trabajo que se tiraría.
 - No se extrajeron de las VMs las configs reales (`sshd_config.d`, cloud-init, ufw-rules) a archivos versionados. Pendiente: requiere SSH a VMs vivas, de menor valor de portfolio que los docs. Tarea atada para próxima sesión.
 
+### Sesión 6 — 27 agosto 2026
+
+**Duración:** ~1 hora.  
+**Naturaleza:** reconexión tras 3 meses sin actividad en el proyecto (última sesión registrada: 24 mayo 2026). Sesión de auditoría y reconciliación, no de ejecución de mini-proyectos nuevos.
+
+**Trabajo realizado:**
+
+1. **Recuperación de contexto.** Repaso de `PROGRESS-LOG.md` y `ROADMAP.md` para retomar el estado documentado: P1 al 67%, bloqueado en P1.1/P1.2 por el cable de consola del FortiGate.
+
+2. **Aviso del aprendiz:** entre sesiones ha estado usando el mismo hardware para "trastear con IA" en proyectos ajenos a Goloca AI, y sospechaba cambios no documentados en Proxmox, especialmente en discos y GPU.
+
+3. **Auditoría completa del host Proxmox** (`lsblk`, `pvs`/`vgs`/`lvs`, `pvesm status`, `cat /etc/pve/storage.cfg`, `qm list`/`pct list` + `qm config`/`pct config` de cada uno, `lspci -nnk`, snapshots existentes, `ip a`). Hallazgos:
+   - **VMs y storages del roadmap intactos:** `local-lvm-nvme1` sigue con los discos de bastion (110) y app01 (120), tal como quedó tras la migración D-10 de sesión 4. `local-lvm-nvme2` sigue vacío (0% uso). `backup-pny` sigue montado y prácticamente vacío (sin backups automatizados — DT-10 sigue abierta). Snapshots de P1.6 (`baseline-clean`, `baseline-with-docker`) intactos.
+   - **Hallazgo no documentado — LXC 130 "ia-gpu".** Contenedor ajeno al roadmap, `onboot: 1`, 6 cores, 20 GB RAM, disco de 250 GB sobre `local-lvm-ssd-samsung` (el SSD Samsung, que el roadmap original reservaba para "VMs secundarias / workers K3s" de P3). Uso real del pool: 182,6 GB de 250 GB asignados (73%), dejando el pool Samsung al 40,58% global.
+   - **GPU no está libre.** El driver `nvidia` está cargado a nivel del host Proxmox (no en una VM aislada). El LXC accede a la GPU compartiendo el driver del host vía bind-mount de device nodes (`/dev/nvidia0`, `nvidiactl`, `nvidia-uvm`, `nvidia-caps`) + reglas de cgroup2. Este modelo es incompatible con el plan original de P6 (passthrough VFIO/IOMMU exclusivo a una VM dedicada) — con una RTX 4060 (GPU de consumo, sin vGPU/SR-IOV/MIG) la asignación es excluyente: o la usa el host/LXC, o la usa una VM vía VFIO, nunca ambos a la vez.
+   - **Red sin migrar.** Bastion y app01 siguen en `192.168.1.110`/`.120` (red doméstica), no en `10.20.0.x`. La migración de red (P1.1/P1.2, DT-12, DT-15, DT-21) no ha empezado pese a que el cable de consola del FortiGate ya llegó.
+
+4. **Decisión — GPU:** se pospone cualquier acción sobre la GPU/LXC hasta llegar a P6. Cuando toque, se evaluará si las cargas actuales de "ia-gpu" se migran dentro de la VM de P6 (Ollama + NVIDIA Container Toolkit, tal como decía el plan original) o si el LXC se descarta sin más. No se toca ahora.
+
+5. **Decisión — Recálculo del plan de almacenamiento (D-12).** El SSD Samsung (`nvme3n1`, 465 GB) queda **fuera del roadmap Goloca AI**, en exclusiva para "ia-gpu". Se reasigna el rol que tenía previsto ("VMs secundarias / workers K3s") al NVMe2 (`local-lvm-nvme2`), que estaba completamente libre y sin uso desde sesión 2. Nuevo mapa de almacenamiento:
+
+   | Disco | Storage Proxmox | Rol en el roadmap | Libre actual |
+   |---|---|---|---|
+   | nvme0n1 (238 GB) | `local` + `local-lvm` | Sistema Proxmox, ISOs, templates, cloudinit. Sin VMs de carga. | ~136 GB (local-lvm) + ~51 GB (local) |
+   | nvme1n1 (238 GB) | `local-lvm-nvme1` | Plataforma / VMs críticas: bastion-prod-01, app-prod-01 (ya alojadas) + monitor-prod-01 (P4) + VM de LLM local (P6) | ~213 GB |
+   | nvme2n1 (238 GB) | `local-lvm-nvme2` | Clúster K3s (P3): k3s-master-01, k3s-worker-01(+extra) | ~230 GB (vacío) |
+   | nvme3n1 Samsung (465 GB) | `local-lvm-ssd-samsung` | **Exclusivo ia-gpu.** Fuera del roadmap. No contar como disponible aunque el pool marque libre. | 267 GB libres en el pool, pero reservados para el crecimiento propio de ia-gpu, no para Goloca AI |
+   | sda PNY (223 GB) | `backup-pny` | Backups (`vzdump` cuando se automatice en P4-P6), snapshots exportados. Sin cambios. | ~204 GB |
+
+   **Razonamiento:** separar "plataforma/servicios singulares" (nvme1) de "plano de datos K3s" (nvme2) evita repetir el error de sobreaprovisionamiento de thin-pool ya visto en D-10 (sesión 4) — un clúster K3s con PVs de pgvector puede crecer de forma impredecible, y mezclarlo con bastion/app/monitor arriesga contención. La VM de LLM local de P6 se trata como servicio de plataforma (singular, no parte del clúster), por eso va en nvme1 y no en nvme2. Ninguna cifra de "libre" en `local-lvm-ssd-samsung` se cuenta para el roadmap: es capacidad de otro proyecto, no un colchón disponible.
+
+6. **Lo que esta sesión NO hizo:** no se ha tocado el LXC ia-gpu (ni parado ni movido). No se ha iniciado la migración de red. No se ha ejecutado P1.1.
+
 ---
 
 ## DESVIACIONES DEL PLAN ORIGINAL
@@ -229,8 +262,9 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | D-07 | VM 110 y 120 nacen con disco 3.5 GB pese al wizard | Clon de CloudImg hereda disco base | Resize manual post-clon | Resuelto en sesión 3 |
 | D-08 | Clave SSH Ed25519 generada en Windows, no en Proxmox | Copiar de Proxmox a Windows rompió formato | Clave operativa = la de Windows | Aceptado |
 | D-09 | app01 configurado 100% por UI (no cicustom snippet) | Decisión de hacer la 2ª VM por UI | Divergencia bastion/app01 | Resuelto en sesión 4 (baseline convergido + script) |
-| **D-10** | **VMs nacieron en `local-lvm` (no `local-lvm-nvme1`)** | **Desviación de sesión 2 no aplicada al clonar** | **Sobreaprovisionamiento thin-pool, riesgo corrupción** | **Resuelto sesión 4 (`qm move-disk`)** |
-| **D-11** | **VS Code Server / disco app01 al 96% en sesión 3** | (ya cubierto en D-07) | — | Resuelto sesión 3 |
+| D-10 | VMs nacieron en `local-lvm` (no `local-lvm-nvme1`) | Desviación de sesión 2 no aplicada al clonar | Sobreaprovisionamiento thin-pool, riesgo corrupción | Resuelto sesión 4 (`qm move-disk`) |
+| D-11 | VS Code Server / disco app01 al 96% en sesión 3 | (ya cubierto en D-07) | — | Resuelto sesión 3 |
+| **D-12** | **SSD Samsung (nvme3, 465 GB) ocupado por LXC "ia-gpu", ajeno al roadmap, con GPU compartida a nivel de host** | **Uso del hardware para proyectos personales de IA durante la pausa de 3 meses** | **El rol "VMs secundarias / K3s" previsto para el Samsung se reasigna a NVMe2. GPU no disponible para P6 tal como estaba planeada (VFIO exclusivo) hasta decidir qué pasa con ia-gpu** | **Aceptado sesión 6. Recalculado plan de almacenamiento. GPU pendiente de decisión en P6** |
 
 ---
 
@@ -246,7 +280,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | DT-04 | Usuarios VPN locales (no LDAP/AD) | P6: IdP (Authentik/Keycloak/AWS IAM) | Pendiente P6 |
 | DT-05 | Doble NAT (HGU + FortiGate) | Opcional: HGU monopuesto | Pendiente opcional |
 | DT-06 | Certificado VPN autofirmado | P6: Let's Encrypt via acme.sh | Pendiente P6 |
-| DT-07 | Usuario en grupo docker = root | P3: RBAC K8s. P6: rootless Docker | **Reafirmada sesión 4** |
+| DT-07 | Usuario en grupo docker = root | P3: RBAC K8s. P6: rootless Docker | Reafirmada sesión 4 |
 | DT-08 | Sin Fail2ban configurado | P6: afinar puerto 2222 + integración FortiGate | Instalado, sin afinar |
 | DT-09 | Sin gestión centralizada de secretos | P6: Vault + AWS Secrets Manager | Pendiente P6 |
 | DT-10 | Sin backups automatizados de VMs | P4-P6: vzdump programado + S3 | Pendiente |
@@ -256,17 +290,18 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | ID | Deuda | Resolución | Estado |
 |---|---|---|---|
 | DT-11 | Entradas EFI residuales de Windows | `efibootmgr -B` | ✅ RESUELTA sesión 4 |
-| DT-12 | IP Proxmox en 192.168.1.101 temporal | Migrar a 10.20.0.10 con FortiGate | Pendiente (post-cable) |
+| DT-12 | IP Proxmox en 192.168.1.101 temporal | Migrar a 10.20.0.10 con FortiGate | Pendiente (cable ya disponible, migración sin iniciar) |
 | DT-13 | HDD 1 TB no detectado | Verificar conexión física | Pendiente |
 | DT-14 | USB de instalación conectado (`/dev/sdb`) | Desconectar físicamente | ✅ RESUELTA sesión 4 |
-| DT-15 | DNS por defecto Proxmox 8.8.8.8 | Cambiar a 10.10.0.1 con FortiGate forwarder | Pendiente (post-cable) |
+| DT-15 | DNS por defecto Proxmox 8.8.8.8 | Cambiar a 10.10.0.1 con FortiGate forwarder | Pendiente (cable ya disponible, migración sin iniciar) |
 | DT-16 | `/mnt/backup-pny` no en fstab | Añadir con `nofail` | ✅ RESUELTA (verificada sesión 4) |
-| DT-17 | `ssh.socket` fuerza puerto, ignora sshd_config | `mask ssh.socket` **+ `enable ssh.service`** | ✅ RESUELTA DE VERDAD sesión 4 (faltaba el enable) |
+| DT-17 | `ssh.socket` fuerza puerto, ignora sshd_config | `mask ssh.socket` + `enable ssh.service` | ✅ RESUELTA DE VERDAD sesión 4 (faltaba el enable) |
 | DT-18 | Clon CloudImg hereda disco base ~3.5 GB | `qm disk resize`+growpart+resize2fs | ✅ RESUELTA sesión 3. P5: automatizar en Terraform |
 | DT-19 | Hardening/baseline aplicado a mano post-clon | Script idempotente de baseline | ✅ RESUELTA sesión 4 (`baseline-setup.sh`) |
 | DT-20 | Divergencia bastion (cicustom) vs app01 (UI) | Baseline único reproducible | ✅ RESUELTA sesión 4 (convergidas + script parametrizado) |
-| **DT-21** | **Reglas UFW con origen transitorio `192.168.1.x`** | **Endurecer a `10.10.x` (bastion) / `10.20.0.40` (app01) post-FortiGate** | **Nueva sesión 4** |
-| **DT-22** | **BIOS se detiene en boot esperando Enter (sin monitor)** | **Acceso físico al BIOS: desactivar "wait on error/F1". Hacer junto a config FortiGate** | **Nueva sesión 4** |
+| DT-21 | Reglas UFW con origen transitorio `192.168.1.x` | Endurecer a `10.10.x` (bastion) / `10.20.0.40` (app01) post-FortiGate | Pendiente (cable ya disponible, migración sin iniciar) |
+| DT-22 | BIOS se detiene en boot esperando Enter (sin monitor) | Acceso físico al BIOS: desactivar "wait on error/F1". Hacer junto a config FortiGate | Pendiente |
+| **DT-23** | **Driver NVIDIA instalado a nivel de host Proxmox (no aislado en VM), GPU compartida con LXC "ia-gpu" vía device bind + cgroup2** | **P6: decidir si se migra a VFIO/IOMMU exclusivo hacia la VM de LLM local (implica desvincular el driver del host y las cargas de ia-gpu) o si se acepta el modelo compartido como desviación permanente** | **Nueva sesión 6. Sin resolución hasta P6** |
 
 ---
 
@@ -278,6 +313,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 110 (bastion) | `baseline-clean` | 5 piezas baseline (sin Docker). SSH 2222 enabled |
 | 120 (app01) | `pre-baseline-clean` | Estado tras migración a nvme1, SSH reparado, pre-baseline |
 | 120 (app01) | `baseline-with-docker` | Baseline completo + Docker 29.5 + Compose v2 |
+
+*(LXC 130 "ia-gpu" no tiene snapshots ni es parte del inventario versionado del roadmap.)*
 
 ---
 
@@ -297,20 +334,20 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Configurar ProxyJump en Windows (Workstation→bastión→app) | Pendiente | S3 |
 | Conectar VS Code Remote SSH detrás de bastión vía ProxyJump | Pendiente | S3 |
 | Corregir hostname heredado del snippet (`hostnamectl`) | Pendiente | S3 |
-| **Recuperar SSH de una VM sin acceso editando el disco offline con `guestfish`** | **Pendiente** | **S4** |
-| **Habilitar un servicio systemd en disco offline (symlink en `*.target.wants/`)** | **Pendiente** | **S4** |
-| **Migrar disco de VM entre pools de almacenamiento (`qm move-disk --delete`)** | **Pendiente** | **S4** |
-| **Aplicar UFW en host remoto con red de seguridad (`nohup sleep && ufw disable`)** | **Pendiente** | **S4** |
-| **Instalar Docker Engine desde repo oficial (no docker.io) + validación NGINX** | **Pendiente** | **S4** |
+| Recuperar SSH de una VM sin acceso editando el disco offline con `guestfish` | Pendiente | S4 |
+| Habilitar un servicio systemd en disco offline (symlink en `*.target.wants/`) | Pendiente | S4 |
+| Migrar disco de VM entre pools de almacenamiento (`qm move-disk --delete`) | Pendiente | S4 |
+| Aplicar UFW en host remoto con red de seguridad (`nohup sleep && ufw disable`) | Pendiente | S4 |
+| Instalar Docker Engine desde repo oficial (no docker.io) + validación NGINX | Pendiente | S4 |
 
 ---
 
 ## PRÓXIMOS PASOS INMEDIATOS
 
 ### Bloqueante crítico
-- **Llegada del cable USB-RJ45 FTDI.** Imprescindible para desbloquear P1.1 y P1.2.
+- Ninguno. El cable USB-RJ45 FTDI ya llegó — falta agendar la sesión de ejecución de P1.1.
 
-### Trabajo post-cable (P1.1 + P1.2 + migración de red)
+### Trabajo pendiente (P1.1 + P1.2 + migración de red)
 1. Reset FortiGate vía consola serie + cuenta `maintainer`.
 2. Configuración inicial FortiGate (P1.1): 4 zonas físicas, políticas least-privilege, NAT, DHCP, logging.
 3. SSL-VPN + DDNS (P1.2).
@@ -318,17 +355,17 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 5. **Migración de red 192.168.1.x → 10.x:**
    - Proxmox: 192.168.1.101 → 10.20.0.10 (DT-12).
    - DNS Proxmox: 8.8.8.8 → 10.10.0.1 (DT-15).
-   - VMs 110/120: reconfigurar `ipconfig0` a 10.20.0.x. Reconfigurar `~/.ssh/config` en Windows.
+   - VMs 110/120: reconfigurar `ipconfig0` a 10.20.0.x (actualmente en 192.168.1.110/.120). Reconfigurar `~/.ssh/config` en Windows.
    - **Endurecer reglas UFW (DT-21):** bastion → `10.10.0.0/24`+`10.10.99.0/24`; app01 → `10.20.0.40`+`10.10.99.0/24`.
 
-### Subido a GitHub en sesión 5
-- ✅ `docs/` — 6 documentos de P1.3 + P1.6 (commit `fb0133a`).
-- ✅ `.gitattributes` — control de line endings (commit `243f3f3`).
-- ✅ `runbooks/` — 5 runbooks operacionales de S4 (commit `1a48d88`).
-- ✅ `baseline-setup.sh` y `PROGRESS-LOG` v1.3 — ya estaban subidos desde S4 (el log v1.3 los daba por pendientes; era dato erróneo).
+### Cuando empiece P3 (K3s)
+- Crear `k3s-master-01` y `k3s-worker-01` sobre `local-lvm-nvme2` (nuevo rol asignado en sesión 6 — ver tabla de almacenamiento recalculado). Probar ahí también `baseline-setup.sh` sobre VM limpia para validar reproducibilidad real.
+
+### Cuando empiece P6 (LLM local)
+- Decidir el destino de "ia-gpu" (LXC 130): migrar sus cargas dentro de la VM de P6 (Ollama + NVIDIA Container Toolkit) o descartarlo. Resolver DT-23 (driver a nivel host vs VFIO exclusivo a la VM). La VM de LLM se aloja en `local-lvm-nvme1`, no en el Samsung (reservado para ia-gpu) ni en nvme2 (reservado para K3s).
 
 ### Pendiente de subir a GitHub (lo que queda)
-- `PROGRESS-LOG.md` v1.4 (este archivo, esta sesión).
+- `PROGRESS-LOG.md` v1.5 (este archivo, esta sesión).
 - **Configs reales extraídas de las VMs** (no existen como archivos versionados, viven solo dentro de las VMs):
   - `infrastructure/proxmox/cloud-init/user-data-default.yaml`
   - `infrastructure/linux-baseline/sshd_config.d/00-goloca.conf`
@@ -336,9 +373,6 @@ Cambios respecto a lo que dice `ROADMAP.md`:
   - `infrastructure/docker/install-docker-ubuntu.sh`
   - Requiere SSH a VMs vivas (bastion/app01) + ProxyJump operativo.
 - Docs/runbooks de P1.4 y P1.5 (provisioning, ProxyJump, VS Code) — aún no escritos.
-
-### Cuando empiece P2
-- Probar `baseline-setup.sh` sobre VM limpia (db-prod-01) → validar reproducibilidad real.
 
 ---
 
@@ -351,16 +385,19 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 23-may | `mask ssh.socket` (no override del puerto) | Solución robusta; override limpio en P6 |
 | 23-may | Discos: bastion 20 GB, app01 40 GB | app01 corre Docker+PG+Redis en P2 |
 | 23-may | Clave SSH operativa = la de Windows | La de Proxmox quedó con formato roto |
-| 24-may | **Recuperar SSH vía `guestfish` (no GRUB/cipassword)** | **Determinista, sin password ni timing. GRUB no capturable, cipassword no reaplica en reboot** |
-| 24-may | **Migrar VMs a `local-lvm-nvme1` (opción A, no autoextend)** | **Corrige causa raíz (pool equivocado), no parchea síntoma. 16 GB de margen no bastan para autoextend** |
-| 24-may | **UFW app01 estricto (solo bastión, no /24)** | **Fiel al patrón bastión: app01 solo accesible vía bastión. ProxyJump ya hace origen=bastión** |
-| 24-may | **Baseline pieza a pieza (no script directo)** | **Didáctico: entender cada elemento antes de automatizar** |
-| 24-may | **Script parametrizado por args (opción A, no 2 copias)** | **Un artefacto, evita reintroducir DT-20. Traduce limpio a Ansible en P5** |
-| 24-may | **No ejecutar baseline-setup.sh sobre VMs actuales** | **Ya tienen baseline a mano. Probar en VM limpia (P2/P3) tiene más valor** |
-| 24-may (S5) | **No adelantar P2 en esta sesión** | **La red DMZ de P2 se reharía tras migrar a 10.x. Consolidar portfolio P1 en su lugar** |
-| 24-may (S5) | **Docs con trade-offs explícitos (no specs secas)** | **Diferenciador de portfolio: el "por qué" separa criterio de tutorial copiado** |
-| 24-may (S5) | **`.gitattributes` en repo (no `core.autocrlf`)** | **Portable: viaja con el repo, protege cualquier clon. Crítico Windows dev → Linux infra** |
-| 24-may (S5) | **Runbooks autocontenidos (no enlazan a docs)** | **Documento de emergencia: debe funcionar solo, bajo presión, sin abrir nada más** |
+| 24-may | Recuperar SSH vía `guestfish` (no GRUB/cipassword) | Determinista, sin password ni timing. GRUB no capturable, cipassword no reaplica en reboot |
+| 24-may | Migrar VMs a `local-lvm-nvme1` (opción A, no autoextend) | Corrige causa raíz (pool equivocado), no parchea síntoma. 16 GB de margen no bastan para autoextend |
+| 24-may | UFW app01 estricto (solo bastión, no /24) | Fiel al patrón bastión: app01 solo accesible vía bastión. ProxyJump ya hace origen=bastión |
+| 24-may | Baseline pieza a pieza (no script directo) | Didáctico: entender cada elemento antes de automatizar |
+| 24-may | Script parametrizado por args (opción A, no 2 copias) | Un artefacto, evita reintroducir DT-20. Traduce limpio a Ansible en P5 |
+| 24-may | No ejecutar baseline-setup.sh sobre VMs actuales | Ya tienen baseline a mano. Probar en VM limpia (P2/P3) tiene más valor |
+| 24-may (S5) | No adelantar P2 en esta sesión | La red DMZ de P2 se reharía tras migrar a 10.x. Consolidar portfolio P1 en su lugar |
+| 24-may (S5) | Docs con trade-offs explícitos (no specs secas) | Diferenciador de portfolio: el "por qué" separa criterio de tutorial copiado |
+| 24-may (S5) | `.gitattributes` en repo (no `core.autocrlf`) | Portable: viaja con el repo, protege cualquier clon. Crítico Windows dev → Linux infra |
+| 24-may (S5) | Runbooks autocontenidos (no enlazan a docs) | Documento de emergencia: debe funcionar solo, bajo presión, sin abrir nada más |
+| 27-ago (S6) | No tocar el LXC "ia-gpu" ahora; decisión aplazada a P6 | El aprendiz quiere seguir usándolo mientras tanto; forzar una migración ahora sería trabajo desechable si las cargas cambian antes de P6 |
+| 27-ago (S6) | Samsung SSD excluido en exclusiva para ia-gpu; NVMe2 asume el rol de storage K3s/secundarias | Evita contar como "libre" un espacio que en la práctica pertenece a otro proyecto; NVMe2 estaba vacío y sin uso asignado desde sesión 2 |
+| 27-ago (S6) | VM de LLM local (P6) planificada en `local-lvm-nvme1`, no en nvme2 ni en Samsung | Es un servicio de plataforma singular, no parte del clúster K3s; mantiene la separación de tiers "plataforma" vs "cómputo K3s" |
 
 ---
 
@@ -369,15 +406,16 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Métrica | Valor |
 |---|---|
 | Mini-proyectos P1 completados | 4 de 6 (P1.3, P1.4, P1.5, P1.6) |
-| Mini-proyectos P1 bloqueados | 2 (P1.1, P1.2 — cable) |
+| Mini-proyectos P1 pendientes | 2 (P1.1, P1.2 — sin bloqueador, pendientes de ejecución) |
 | Avance porcentual P1 | ~67% |
 | Avance global roadmap | ~11% |
-| Commits en GitHub | 7 (initial ×2, estructura, log S1-3, Terminado 1.6, docs P1.3/P1.6, .gitattributes, runbooks) — `main` al día |
-| Deudas técnicas registradas | 22 (DT-01 a DT-22) |
+| Commits en GitHub | 7 (initial ×2, estructura, log S1-3, Terminado 1.6, docs P1.3/P1.6, .gitattributes, runbooks) — pendiente confirmar si sigue así tras 3 meses |
+| Deudas técnicas registradas | 23 (DT-01 a DT-23) |
 | Deudas técnicas resueltas | 7 (DT-11,14,16,17,18,19,20) |
-| Desviaciones del plan | 11 (D-01 a D-11) |
-| Storages LVM operativos | 4 (3 thin-pool + 1 backup ext4) |
-| VMs operativas | 2 (bastion, app01) en `local-lvm-nvme1` + 1 template (9000) |
+| Desviaciones del plan | 12 (D-01 a D-12) |
+| Storages LVM operativos (roadmap) | 4 (3 thin-pool + 1 backup ext4) — más 1 storage adicional (`local-lvm-ssd-samsung`) fuera del roadmap, en uso por ia-gpu |
+| VMs operativas (roadmap) | 2 (bastion, app01) en `local-lvm-nvme1` + 1 template (9000) |
+| Recursos ajenos al roadmap detectados | 1 (LXC 130 "ia-gpu", GPU + 182,6 GB en Samsung SSD) |
 | Snapshots activos | 4 (2 por VM) |
 | Incidentes mayores resueltos | 1 (pérdida SSH ambas VMs — DT-17) |
 | Entregables de código | 1 (`baseline-setup.sh`, 142 líneas, idempotente) |
@@ -395,6 +433,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 2026-05-23 | 1.2 | Sesión 3. P1.4 y P1.5 cerrados. Hardening SSH, ProxyJump, VS Code. D-07/08/09, DT-17/18/19/20. |
 | 2026-05-24 | 1.3 | Sesión 4. **P1.3 cerrado 100%** (DT-11/14/16). **Incidente mayor SSH** (DT-17 mal cerrado, rescate guestfish ambas VMs). **Migración almacenamiento** local-lvm→nvme1 (D-10). **P1.6 completo** (baseline 6 piezas + Docker). **`baseline-setup.sh`** (cierra DT-19/20). DT-21/22 nuevas. P1 al 67%, global ~11%. 7 deudas resueltas. |
 | 2026-05-24 | 1.4 | Sesión 5 (consolidación de portfolio, sin avance de infra). Corregido dato falso de commits (eran 7, no 1). **6 docs de P1.3/P1.6** subidos (`fb0133a`). **`.gitattributes`** para line endings Windows→Linux (`243f3f3`). **5 runbooks operacionales de S4** subidos (`1a48d88`). `docs/` y `runbooks/` pasan de vacías a pobladas. Pendiente: extraer configs reales de las VMs a archivos versionados. |
+| 2026-08-27 | 1.5 | Sesión 6 (reconexión tras 3 meses). Auditoría completa de Proxmox. **Hallazgo D-12/DT-23:** LXC "ia-gpu" ajeno al roadmap ocupa el SSD Samsung (182,6 GB) y comparte la GPU a nivel de host, incompatible con el plan VFIO original de P6. **Recalculado el plan de almacenamiento:** Samsung excluido en exclusiva para ia-gpu; NVMe2 (antes vacío) asume el rol de storage para K3s/VMs secundarias de P3; VM de LLM local de P6 planificada en NVMe1 junto al resto de plataforma. Decisión sobre el futuro de ia-gpu y la GPU aplazada a P6. Cable de consola del FortiGate confirmado como ya disponible — P1.1/P1.2 sin bloqueador, pendientes de agenda. Red de bastion/app01 confirmada aún sin migrar a 10.x. |
 
 ---
 
