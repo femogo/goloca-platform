@@ -147,8 +147,12 @@ goloca-platform/
 ├── ROADMAP.md                    Plan técnico de los 6 meses y decisiones de arquitectura
 ├── PROGRESS-LOG.md               Bitácora operacional: sesiones, incidentes, deuda técnica
 ├── docs/                         Documentación técnica con trade-offs
+│   ├── 01-network-architecture.md
+│   ├── 01-vlan-zoning-rationale.md
 │   ├── 03-proxmox-architecture-decision.md
 │   ├── 03-storage-design.md
+│   ├── 04-vm-provisioning-strategy.md
+│   ├── 05-bastion-host-pattern.md
 │   ├── 06-linux-baseline-spec.md
 │   ├── 06-hardening-checklist.md
 │   ├── 06-docker-installation.md
@@ -159,7 +163,12 @@ goloca-platform/
 │   ├── proxmox/
 │   └── docker/
 ├── runbooks/                     Procedimientos autocontenidos para ejecutar bajo presión
+│   ├── 01-fortigate-serial-recovery.md
+│   ├── 01-serial-console-crosstalk.md
+│   ├── 01-overlapping-subnets-debug.md
+│   ├── 03-proxmox-ip-migration-dual-addressing.md
 │   ├── 03-storage-move-disk.md
+│   ├── 04-vm-network-reconfig-guest-agent.md
 │   ├── 06-vm-ssh-recovery-guestfish.md
 │   ├── 06-systemd-enable-offline.md
 │   ├── 06-ufw-remote-safe-apply.md

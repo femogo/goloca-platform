@@ -448,11 +448,11 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Migrar disco de VM entre pools de almacenamiento (`qm move-disk --delete`) | Pendiente | S4 |
 | Aplicar UFW en host remoto con red de seguridad (`nohup sleep && ufw disable`) | Pendiente | S4 |
 | Instalar Docker Engine desde repo oficial (no docker.io) + validación NGINX | Pendiente | S4 |
-| **Recuperar un FortiGate sin credenciales: consola serie + cuenta `maintainer` + `factoryreset`** | **Pendiente** | **S7** |
-| **Diagnosticar diafonía (crosstalk TX/RX) en cable de consola serie** | **Pendiente** | **S7** |
-| **Depurar "sin salida a Internet" causado por solapamiento de subredes WAN/LAN en FortiGate** | **Pendiente** | **S7** |
-| **Migrar la IP de un host Proxmox sin perder acceso (direccionamiento dual en caliente)** | **Pendiente** | **S7** |
-| **Reconfigurar la red de una VM aislada con `qemu-guest-agent` (`qm guest exec` / `qm set --ipconfig0`)** | **Pendiente** | **S7** |
+| Recuperar un FortiGate sin credenciales: consola serie + `maintainer` + `factoryreset` | ✅ `01-fortigate-serial-recovery.md` | S7 |
+| Diagnosticar diafonía (crosstalk TX/RX) en cable de consola serie | ✅ `01-serial-console-crosstalk.md` | S7 |
+| Depurar "sin salida a Internet" por solapamiento de subredes WAN/LAN | ✅ `01-overlapping-subnets-debug.md` | S7 |
+| Migrar la IP de un host Proxmox sin perder acceso (direccionamiento dual) | ✅ `03-proxmox-ip-migration-dual-addressing.md` | S7 |
+| Reconfigurar la red de una VM aislada con `qemu-guest-agent` | ✅ `04-vm-network-reconfig-guest-agent.md` | S7 |
 
 ---
 
@@ -501,8 +501,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 ### Pendiente de subir a GitHub
 - `PROGRESS-LOG.md` v1.6 (este archivo).
 - Backup de configuración del FortiGate en `infrastructure/fortigate/backups/`.
-- Docs de P1.1: `01-network-architecture.md`, `01-vlan-zoning-rationale.md`, `01-firewall-policy-matrix.md`.
-- Los 5 runbooks nuevos de la sesión 7 (ver tabla de runbooks).
+- `01-firewall-policy-matrix.md` — se escribe al completar la fase D de P1.1, cuando las políticas existan. Documentar antes una matriz que no está aplicada sería repetir el error que tenía el README.
+- Docs de P1.2 (acceso remoto, DDNS, diseño SSL-VPN) cuando se ejecute el mini-proyecto.
 - **Configs reales extraídas de las VMs** (siguen viviendo solo dentro de ellas):
   - `infrastructure/proxmox/cloud-init/user-data-default.yaml`
   - `infrastructure/proxmox/network/interfaces` (ya migrado a 10.20.0.10/24)
@@ -570,8 +570,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Recursos ajenos al roadmap detectados | 1 (LXC 130 "ia-gpu", GPU + 182,6 GB en Samsung SSD) |
 | Snapshots activos | 4 (2 por VM) |
 | Entregables de código | 1 (`baseline-setup.sh`, 142 líneas, idempotente) |
-| Documentos de portfolio (docs/) | 6 (P1.3 ×2, P1.6 ×4) |
-| Runbooks operacionales (runbooks/) | 5 (S4: guestfish, systemd offline, move-disk, UFW, Docker) |
+| Documentos de portfolio (docs/) | 10 (P1.1 ×2, P1.3 ×2, P1.4, P1.5, P1.6 ×4) |
+| Runbooks operacionales (runbooks/) | 10 (5 de S4 + 5 de S7) |
 
 ---
 
