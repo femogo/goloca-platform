@@ -56,11 +56,13 @@ El diseño no asume un atacante que ataca de frente la puerta principal. Asume q
 
 ### 3.1 Capa 1 — Perímetro (FortiGate)
 
-La segmentación de red es la primera capa y la más importante contra el pivote. Si el IoT comprometido vive en la zona WIFI (`10.99.0.0/24`) y las políticas del FortiGate niegan todo tráfico de WIFI hacia SERVERS, el atacante en la bombilla no puede ni ver el servidor de aplicación. No es que no pueda entrar: es que el tráfico ni siquiera se enruta.
+La segmentación de red es la primera capa y la más importante contra el pivote. Si el dispositivo IoT comprometido no comparte dominio de difusión con los servidores y las políticas del FortiGate niegan ese tráfico, el atacante en la bombilla no puede ni ver el servidor de aplicación. No es que no pueda entrar: es que el tráfico ni siquiera se enruta.
+
+> **Revisión de sesión 7.** El diseño original aislaba los dispositivos domésticos en una zona WIFI (`10.99.0.0/24`) detrás del FortiGate. Esa zona **no se implementa** (desviación D-13): un solo cable une el HGU con la planta inferior, y bajar el punto de acceso metería todos los dispositivos de la vivienda dentro del laboratorio. El aislamiento se consigue por el otro lado — el AP se queda **delante** del FortiGate, en la red doméstica, y el laboratorio entero vive detrás. El resultado para el modelo de amenaza es equivalente: el IoT comprometido está fuera del perímetro, no dentro de una zona restringida.
 
 Detalle de diseño: la política implícita final es `deny all` **con logging**. No basta con denegar; hay que registrar la denegación. Una intrusión que rebota contra el deny-all sin logging es una intrusión invisible. El log de denegaciones es lo que convierte un firewall en un sensor.
 
-Esta capa está pendiente (P1.1, bloqueada por hardware). Mientras tanto, el laboratorio corre sin ella, sobre `192.168.1.x`. Eso es deuda de seguridad temporal explícita: el modelo de amenaza no está cubierto hasta que el FortiGate entre en servicio.
+**Estado (sesión 7):** el FortiGate ya está en servicio y todo el laboratorio vive detrás de él en `10.20.0.0/24`, separado de la red doméstica. La capa existe, pero **a medias**: la red interna sigue siendo plana (sin zonas MGMT/SERVERS/DMZ) y la política de salida es transitoria y permisiva (`all/all/ACCEPT`, DT-25). El pivote desde la red doméstica está cortado; el pivote *lateral* dentro del laboratorio, todavía no.
 
 ### 3.2 Capa 2 — Acceso (Bastión)
 

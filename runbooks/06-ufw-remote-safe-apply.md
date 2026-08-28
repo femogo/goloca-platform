@@ -51,10 +51,10 @@ sudo ufw allow from <origen> to any port 2222 proto tcp
 Ejemplos reales:
 ```bash
 # bastión: SSH desde toda la red de gestión
-sudo ufw allow from 192.168.1.0/24 to any port 2222 proto tcp
+sudo ufw allow from 10.20.0.0/24 to any port 2222 proto tcp
 
 # app01: SSH SOLO desde el bastión (patrón estricto)
-sudo ufw allow from 192.168.1.110 to any port 2222 proto tcp
+sudo ufw allow from 10.20.0.40 to any port 2222 proto tcp
 ```
 
 ### Paso 3 — Verificar que la regla está antes de activar

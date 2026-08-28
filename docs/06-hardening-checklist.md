@@ -38,7 +38,7 @@ Configuración aplicada vía drop-in: `/etc/ssh/sshd_config.d/00-goloca.conf` (n
 | SSH 2222 permitido | desde red MGMT | solo desde bastión | `ufw status numbered` |
 | UFW activo | active | active | `ufw status \| head -1` |
 
-**Pendiente de endurecer (DT-21):** los orígenes actuales son `192.168.1.x` (transitorios). Tras el FortiGate: bastión → `10.10.0.0/24` + `10.10.99.0/24`; app01 → `10.20.0.40` + `10.10.99.0/24`.
+**DT-21 — parcialmente aplicada (sesión 7).** Los orígenes se migraron de `192.168.1.x` a la red real: bastión acepta `10.20.0.0/24`, app01 solo `10.20.0.40`. Quedan dos cosas: borrar las reglas obsoletas de `192.168.1.x`, que siguen presentes aunque inertes (DT-26), y endurecer a `10.10.0.0/24` + `10.10.99.0/24` cuando existan las zonas MGMT y VPN.
 
 ## 4. Logging
 

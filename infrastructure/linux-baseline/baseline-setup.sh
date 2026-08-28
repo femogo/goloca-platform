@@ -14,15 +14,15 @@
 #   <rol>             bastion | app
 #                     'app' instala además Docker Engine; 'bastion' no.
 #   <origen_ssh_ufw>  CIDR o IP origen permitida para SSH/2222 en UFW.
-#                     bastion (entrada MGMT):  192.168.1.0/24
-#                     app     (tras bastión):  192.168.1.110
+#                     bastion (entrada MGMT):  10.20.0.0/24
+#                     app     (tras bastión):  10.20.0.40
 #
 # EJEMPLOS:
-#   sudo ./baseline-setup.sh bastion 192.168.1.0/24
-#   sudo ./baseline-setup.sh app     192.168.1.110
+#   sudo ./baseline-setup.sh bastion 10.20.0.0/24
+#   sudo ./baseline-setup.sh app     10.20.0.40
 #
-# NOTA: el origen es transitorio (red 192.168.1.x) hasta migrar a la red real
-# tras configurar el FortiGate. Endurecer a 10.10.x / 10.20.0.40 (DT-21).
+# NOTA: estos orígenes corresponden a la red plana actual. Cuando existan las
+# zonas del FortiGate, endurecer a 10.10.0.0/24 + 10.10.99.0/24 (DT-21).
 #
 # REQUISITOS: ejecutar como root (sudo). Ubuntu 24.04 LTS. Salida a internet.
 # -----------------------------------------------------------------------------

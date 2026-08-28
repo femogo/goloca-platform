@@ -64,14 +64,14 @@ La decisión de repos `no-subscription` (DT-03) merece mención: en el lab es co
 El procedimiento detallado vive en el runbook de instalación. Resumen de lo que define la arquitectura:
 
 - **Instalación** sobre `/dev/nvme0n1` (238 GB) con `ext4`, hostname `pve-prod-01.goloca.lab`.
-- **Red:** bridge `vmbr0` puenteado a la NIC física. Inicialmente previsto en `10.20.0.10/24`, temporalmente en `192.168.1.101/24` hasta que el FortiGate esté operativo (desviación D-02). Migración pendiente (DT-12).
+- **Red:** bridge `vmbr0` puenteado a la NIC física, en `10.20.0.10/24`. Estuvo temporalmente en `192.168.1.101/24` mientras el FortiGate no estaba operativo (desviación D-02); migrado en la sesión 7 mediante direccionamiento dual en caliente, sin perder acceso al host (DT-12 resuelta). **Diseño objetivo:** `nic0` pasa a ser troncal 802.1Q sin IP para el tráfico de las VMs, y la gestión del host se traslada a una NIC USB dedicada en la zona MGMT (`10.10.0.10`) — ver sección 4.5 del roadmap.
 - **BIOS:** VT-x, VT-d/IOMMU habilitados (VT-d es condición necesaria para el GPU passthrough de P6 — sin él, P6 es imposible).
 - **Almacenamiento:** ver [`03-storage-design.md`](03-storage-design.md).
 - **Hardening SSH** del propio host: puerto no estándar, sin login de root, autenticación por clave.
 
 ## 6. Validación
 
-- Acceso web `https://192.168.1.101:8006` operativo.
+- Acceso web `https://10.20.0.10:8006` operativo (fue `192.168.1.101` hasta la migración de la sesión 7).
 - `pveversion` confirma Proxmox VE 9.2.
 - `lscpu` / `dmesg | grep -i iommu` confirman virtualización por hardware e IOMMU activos (verificación temprana de que P6 será viable).
 - Bridge `vmbr0` levantado y puenteado, conectividad de salida verificada.
@@ -81,5 +81,5 @@ El procedimiento detallado vive en el runbook de instalación. Resumen de lo que
 | ID | Deuda | Resolución |
 |---|---|---|
 | DT-03 | Repos no-subscription | Suscripción de pago en prod real |
-| DT-12 | IP en 192.168.1.101 temporal | Migrar a 10.20.0.10 tras FortiGate |
+| ~~DT-12~~ | ~~IP en 192.168.1.101 temporal~~ | ✅ Resuelta en sesión 7: migrado a `10.20.0.10` |
 | DT-22 | BIOS se detiene en boot esperando Enter | Acceso físico al BIOS para desactivar "wait on error" |

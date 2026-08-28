@@ -22,9 +22,39 @@ El inventario difiere de la planificación inicial del roadmap (desviación D-03
 |---|---|---|---|---|
 | `/dev/nvme0n1` | 238 GB | NVMe | SO Proxmox + boot | `local` (dir) + `local-lvm` |
 | `/dev/nvme1n1` | 238 GB | NVMe | VMs críticas | `local-lvm-nvme1` (thin) |
-| `/dev/nvme2n1` | 238 GB | NVMe | VMs secundarias / reserva | `local-lvm-nvme2` (thin) |
-| `/dev/nvme3n1` | 465 GB | NVMe Samsung | VMs de capacidad | `local-lvm-ssd-samsung` (thin) |
+| `/dev/nvme2n1` | 238 GB | NVMe | Clúster K3s (P3) | `local-lvm-nvme2` (thin) |
+| `/dev/nvme3n1` | 465 GB | NVMe Samsung | **Fuera del roadmap** — ver §2.1 | `local-lvm-ssd-samsung` (thin) |
 | `/dev/sda` | 223 GB | SATA SSD PNY | Backups, ISOs, snapshots | `backup-pny` (dir, ext4) |
+
+### 2.1 Reasignación tras el hallazgo de la sesión 6
+
+> **El reparto original no sobrevivió al contacto con la realidad.** Al retomar el proyecto tras
+> tres meses de pausa, una auditoría del hipervisor reveló un contenedor LXC ajeno al roadmap
+> (`ia-gpu`, VMID 130) creado durante la pausa para experimentos con modelos de IA: 250 GB
+> asignados sobre el SSD Samsung y acceso a la GPU compartida a nivel de host.
+
+Consecuencias sobre el diseño:
+
+- **El SSD Samsung queda excluido del roadmap.** Se reserva en exclusiva para `ia-gpu`. Su
+  espacio libre **no se contabiliza** como capacidad disponible: pertenece a otro proyecto.
+- **`nvme2n1` asume el papel que tenía previsto el Samsung.** Estaba completamente vacío y sin
+  uso asignado desde la instalación, así que hereda el rol de plano de cómputo del clúster K3s
+  de P3.
+- **`nvme1n1` queda como disco de plataforma:** servicios singulares y de larga vida — bastión,
+  host de aplicación, observabilidad en P4, y la VM de LLM local de P6.
+
+El criterio de la separación es deliberado: mantener el **plano de datos del clúster** (con
+volúmenes persistentes de crecimiento impredecible) en un disco distinto de los **servicios de
+plataforma**. Mezclarlos reproduciría el incidente de sobreaprovisionamiento descrito en §5, esta
+vez con un thin-pool que crece solo.
+
+| Disco | Rol tras la revisión | Libre real para el roadmap |
+|---|---|---|
+| `nvme0n1` | SO Proxmox, ISOs, plantillas. Sin VMs de carga | ~136 GB (no usar) |
+| `nvme1n1` | Plataforma: bastión, app01, observabilidad (P4), LLM (P6) | ~213 GB |
+| `nvme2n1` | Clúster K3s (P3) | ~230 GB |
+| `nvme3n1` | Exclusivo `ia-gpu` | **0 GB** (267 GB libres, pero no disponibles) |
+| `sda` | Backups | ~204 GB |
 
 El HDD de 1 TB previsto **no fue detectado** (D-04). Probablemente desconectado físicamente. Pendiente de verificación cuando haya acceso físico al servidor (junto a la resolución de DT-22). Mientras tanto, los backups van al SSD PNY, que es más rápido pero de menor capacidad — trade-off aceptable para un laboratorio, pero documentado como deuda: en producción los backups nunca comparten criticidad con el almacenamiento primario, y un SSD de 223 GB no sostiene una política de retención larga.
 
@@ -71,13 +101,14 @@ El reparto de cargas sobre los storages sigue la lógica de aislar I/O por criti
  nvme0n1     nvme1n1     nvme2n1      nvme3n1         sda
  238 GB      238 GB      238 GB       465 GB        223 GB
    │            │           │            │              │
- SO +        VMs         VMs         VMs de         Backups
- local-lvm   críticas    secundarias capacidad      ISOs
-   │         (110,120)   /reserva     (futuro)      Snapshots
-   │            │                                      │
- NO usar     VMs P1                                 vzdump
- para VMs    actuales                               (NO crítico
- (ver §5)                                            junto a SO)
+ SO +      PLATAFORMA   CLÚSTER      ia-gpu         Backups
+ local-lvm   bastión      K3s          (LXC 130)      ISOs
+   │         app01        (P3)                        Snapshots
+   │         monitor P4                  ▲               │
+   │         LLM P6                      │            vzdump
+ NO usar        │                   FUERA DEL        (NO crítico
+ para VMs    VMs P1                 ROADMAP          junto a SO)
+ (ver §5)    actuales               (D-12)
 ```
 
 La regla operativa: **el disco del SO (`nvme0n1` / `local-lvm`) no aloja VMs.** Tiene que quedar holgado para el propio Proxmox, sus logs, y el storage `local` (ISOs, snippets, plantillas). Mezclar VMs ahí compite con el sistema por I/O y espacio. Esta regla se violó en la práctica y causó un incidente — sección 5.
