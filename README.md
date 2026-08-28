@@ -114,6 +114,29 @@ Portfolio profesional demostrando capacidad de:
 
 **Target:** DevOps Junior / Cloud Engineer Junior / Platform Engineer Junior en startups IA europeas.
 
+## Nota sobre datos sensibles
+
+Este repositorio documenta infraestructura real en funcionamiento, por lo que la
+información que permitiría localizarla o acceder a ella se sustituye
+deliberadamente por marcadores:
+
+| Marcador | Sustituye a |
+|---|---|
+| `203.0.113.10` | La IP pública real (rango RFC 5737, reservado para documentación) |
+| `<DDNS-HOSTNAME>` | El nombre DDNS real del laboratorio |
+| `FGT30E<SERIAL-REDACTED>` | El número de serie del FortiGate |
+
+El serial se redacta porque la cuenta de recuperación `maintainer` de FortiOS
+deriva su contraseña de él.
+
+Las copias de configuración de red se publican **sanitizadas**: los hashes de
+credenciales (`set password ENC ...`) y las claves privadas de certificados nunca
+se versionan. Ver `infrastructure/fortigate/backups/README.md`.
+
+El direccionamiento privado (`10.x`, `192.168.x`) sí se documenta íntegro: es
+RFC 1918, no es accesible desde Internet, y es precisamente el contenido técnico
+que este portfolio pretende mostrar.
+
 ## Contacto
 
 - **Autor:** Fernando Morales (@femogo)
