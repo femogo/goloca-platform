@@ -57,6 +57,7 @@ SaaS multi-tenant. Cada cliente tiene datos aislados, agentes personalizados, y 
 | Componente | Tecnología | Proyecto |
 |---|---|---|
 | Perímetro de red | FortiGate 30E | P1 |
+| Segmentación L2 | VLANs 802.1Q (troncal al hipervisor) | P1 |
 | Hipervisor | Proxmox VE | P1 |
 | Sistema base | Ubuntu Server 24.04 LTS | P1 |
 | API gateway | NGINX + FastAPI (Python) | P2 |
@@ -104,6 +105,8 @@ SaaS multi-tenant. Cada cliente tiene datos aislados, agentes personalizados, y 
   - Discos adicionales → Reserva para P6 (modelos LLM ~5-15 GB cada uno, vector DB persistente)
 - **SO:** Pendiente formateo → **Proxmox VE 8.x bare-metal** (eliminando Windows Server actual)
 
+- **Red:** una sola NIC integrada (`nic0`) + **adaptador USB 3.0-Gigabit**. La integrada actúa como troncal 802.1Q para las VMs; la USB, como interfaz de gestión del host en MGMT (ver 4.5).
+
 ### 3.2 PC Windows (workstation desarrollo)
 
 - Permanece con Windows.
@@ -118,7 +121,7 @@ SaaS multi-tenant. Cada cliente tiene datos aislados, agentes personalizados, y 
 ### 3.4 Infraestructura de red
 
 - **FortiGate 30E** (FortiOS 7.4+): núcleo perimetral. Configuración como router/firewall principal.
-- **Switch D-Link DGS-1005P**: **NO gestionable** (sin VLAN tagging, sin L3). Usado como switch tonto en zona SERVERS.
+- **Switch D-Link DGS-1005P**: **NO gestionable** (sin VLAN tagging, sin L3). Situado **delante** del FortiGate, en la red doméstica: reparte la única bajada del HGU entre el punto de acceso WiFi y la WAN del FortiGate. No forma parte del laboratorio.
 - **Access Point WiFi**: doméstico, sirviendo VLAN WIFI sin acceso a zonas internas.
 - **Router HGU Movistar** (~6 años, probablemente Mitrastar GPT-2541GNAC o Askey RFT3505VW): proporciona conectividad WAN. **Doble NAT** con el FortiGate (ver decisión arquitectónica 4.4).
 
@@ -135,12 +138,27 @@ SaaS multi-tenant. Cada cliente tiene datos aislados, agentes personalizados, y 
 
 Estas decisiones están **bloqueadas**. No se replantean salvo cambio de hardware.
 
-### 4.1 Segmentación de red
+### 4.1 Segmentación de red — modelo híbrido
 
-- **Decisión:** segmentación por **puertos físicos del FortiGate** (no VLAN tagging).
-- **Razón:** el switch DGS-1005P es no gestionable.
-- **Implicación:** 4 zonas físicas + 1 reserva (5 puertos LAN del FortiGate utilizados).
-- **Deuda técnica:** si el laboratorio crece más allá de 4 zonas, será necesario un switch gestionable (recomendado: TP-Link TL-SG108E ~25 €).
+> **Revisada en sesión 7 (28 ago 2026).** La decisión original descartaba VLANs por completo. Se acotó su alcance al detectar que bloqueaba P2: ver el razonamiento abajo.
+
+La segmentación se resuelve de dos formas distintas según el tramo de red:
+
+**a) Plano de gestión — segmentación por puertos físicos del FortiGate.**
+
+- **Decisión:** los equipos físicos (workstations, NIC de gestión del hipervisor) se conectan a puertos del FortiGate agrupados por zona.
+- **Razón:** el switch D-Link DGS-1005P no es gestionable y no puede transportar VLANs etiquetadas.
+- **Deuda técnica (DT-02):** si hacen falta más zonas físicas, se requiere un switch gestionable (TP-Link TL-SG108E, ~25 €).
+
+**b) Plano de datos — troncal 802.1Q hacia el hipervisor.**
+
+- **Decisión:** el enlace entre `nic0` de Proxmox y el puerto `internal3` del FortiGate es un **troncal 802.1Q**. Cada zona que aloje máquinas virtuales viaja etiquetada por ese enlace.
+- **Problema que resuelve:** Proxmox tiene **una sola NIC integrada**. Con segmentación puramente física, todas las VMs quedarían encerradas en la zona a la que esté puenteada esa NIC. Eso hacía **imposible** el reverse proxy NGINX en DMZ previsto en P2: la zona DMZ existiría como interfaz del FortiGate, pero ningún servidor podría alcanzarla.
+- **Por qué esto no contradice la decisión (a):** el motivo de descartar VLANs era el switch no gestionable. En el enlace Proxmox ↔ FortiGate **no hay ningún switch de por medio** — es punto a punto. La restricción que justificaba la decisión no aplica a ese tramo.
+- **Precedente en producción:** llevar un troncal al hipervisor y repartir VLANs dentro es el patrón estándar en VMware, Proxmox y cualquier virtualización con múltiples redes. La alternativa (una NIC física por zona) no escala.
+- **Implicación formativa:** incorpora 802.1Q, bridges VLAN-aware y depuración de etiquetado al roadmap, que antes no lo cubría en ningún punto.
+
+**Alternativa descartada:** segunda NIC USB 3.0-Gigabit dedicada a la DMZ. Funciona, pero exige un adaptador por zona, y un USB-Ethernet es frágil como infraestructura permanente. La USB NIC disponible se destina a un uso mejor (ver 4.5).
 
 ### 4.2 Hipervisor
 
@@ -159,12 +177,14 @@ Estas decisiones están **bloqueadas**. No se replantean salvo cambio de hardwar
 - **Razón:** evita perder IPTV de Movistar si se usa; delega seguridad al FortiGate; configuración más simple que modo monopuesto/bridge.
 - **Alternativa futura (opcional):** modo monopuesto del HGU si IPTV no se usa, eliminando el doble NAT.
 
-### 4.5 Migración de bastion-prod-01 a zona MGMT
+### 4.5 Uso de la NIC USB — separación de plano de gestión y plano de datos
 
-- **Estado actual:** bastion-prod-01 en zona SERVERS (10.20.0.40) temporalmente.
-- **Razón temporal:** el PC Proxmox tiene una sola NIC física.
-- **Resolución futura:** adquirir **adaptador USB 3.0 a Gigabit Ethernet** (~15-20 €), conectarlo al puerto LAN1 del FortiGate (MGMT), crear `vmbr1` en Proxmox, migrar el bastión a 10.10.0.40.
-- **Tiempo estimado de migración cuando llegue el adaptador:** 5 minutos.
+> **Revisada en sesión 7 (28 ago 2026).** El destino previsto para la NIC USB era dar al bastión una pata en MGMT. Con el troncal VLAN (4.1) eso ya no hace falta: el bastión llega a MGMT etiquetando. El adaptador se reasigna a algo de más valor.
+
+- **Decisión:** la **NIC USB 3.0-Gigabit** se dedica a la **interfaz de gestión del propio host Proxmox**, conectada a la zona MGMT (`pve-prod-01` → `10.10.0.10`). La NIC integrada `nic0` queda como **troncal puro** para el tráfico de las VMs, sin IP de host.
+- **Razón:** separa el plano de gestión del plano de datos. Un error en la configuración de VLANs, bridges o cortafuegos del plano de datos **no deja al hipervisor incomunicado**. Es especialmente relevante aquí: el servidor no tiene monitor ni teclado conectados y recuperarlo físicamente es costoso.
+- **Precedente en producción:** interfaz de gestión dedicada y separada del tráfico de cargas es práctica estándar (equivalente al `vmk0` de gestión en ESXi o a una red de gestión out-of-band).
+- **Resolución de DT-01:** el bastión pasa a MGMT mediante VLAN sobre el troncal, sin hardware adicional.
 
 ### 4.6 Repositorios sin suscripción de Proxmox
 
@@ -183,93 +203,143 @@ Estas decisiones están **bloqueadas**. No se replantean salvo cambio de hardwar
 
 ### 5.1 Zonas y subredes
 
-| Puerto FortiGate | Nombre | Subred | Propósito | Acceso desde Internet |
-|---|---|---|---|---|
-| WAN1 | wan | 192.168.1.x (vía HGU) → 203.0.113.10 | Salida a Internet | N/A |
-| LAN1 | port-mgmt | 10.10.0.0/24 | Gestión: portátil admin, futuras VMs MGMT | Solo vía SSL-VPN |
-| LAN2 | port-servers | 10.20.0.0/24 | Servidores: PC Proxmox, PC Windows dev, VMs aplicación | Nunca directo |
-| LAN3 | port-dmz | 10.30.0.0/24 | DMZ: reverse proxy NGINX (a partir de P2) | Solo 80/443 vía NAT |
-| LAN4 | port-wifi | 10.99.0.0/24 | WiFi laboratorio / invitados | Sin acceso a otras zonas |
-| LAN5 | reserva | — | Expansión P3 (clúster K3s adicional) | — |
-| ssl.root | vpn-pool | 10.10.99.0/24 | Pool VPN para acceso remoto | Solo via SSL-VPN |
+> **Revisada en sesión 7.** Modelo híbrido: las zonas con equipos físicos viven en puertos del FortiGate; las zonas que solo contienen máquinas virtuales viven como VLAN sobre el troncal hacia Proxmox (ver 4.1).
+
+| Zona | Dónde vive | VLAN ID | Subred | Propósito | Acceso desde Internet |
+|---|---|---|---|---|---|
+| WAN | WAN1 | — | 192.168.1.x (vía HGU) → 203.0.113.10 | Salida a Internet | N/A |
+| **MGMT** | Grupo físico `internal1`+`internal2`+`internal4`, más VLAN 10 del troncal | 10 (solo tramo virtual) | `10.10.0.0/24` | Gestión: workstations, NIC de gestión de Proxmox, bastión | Solo vía SSL-VPN |
+| **SERVERS** | VLAN sobre el troncal `internal3` | 20 | `10.20.0.0/24` | VMs de aplicación, base de datos, nodos K3s, observabilidad | Nunca directo |
+| **DMZ** | VLAN sobre el troncal `internal3` | 30 | `10.30.0.0/24` | Reverse proxy NGINX (desde P2) | Solo 80/443 vía NAT |
+| WIFI | *No implementada* | 99 (reservada) | `10.99.0.0/24` | — | — |
+| VPN | `ssl.root` | — | `10.10.99.0/24` | Pool de acceso remoto | Solo vía SSL-VPN |
+
+**Notas de diseño:**
+
+- **MGMT abarca dos medios.** Los equipos físicos entran sin etiquetar por el grupo de puertos; las VMs que deban estar en MGMT (el bastión) entran etiquetadas en VLAN 10 por el troncal. Ambos tramos se unen en **un único dominio de difusión** mediante un *software switch* del FortiGate, de modo que comparten la misma subred y una sola IP de gateway (`10.10.0.1`). Sin esa unión habría dos interfaces distintas en `10.10.0.0/24`, y subredes solapadas en un FortiGate rompen el encaminamiento — verificado en la práctica durante la sesión 7.
+- **SERVERS y DMZ no tienen puerto físico.** No lo necesitan: sus únicos miembros son máquinas virtuales, que llegan por el troncal. Si algún día hay un servidor físico en SERVERS, se le asigna un puerto y se une a la VLAN 20 por el mismo mecanismo de software switch.
+- **WIFI no se implementa** (desviación D-13): el punto de acceso permanece en la red doméstica, delante del FortiGate, porque un solo cable une el HGU con la planta inferior y bajarlo metería todos los dispositivos WiFi de la vivienda dentro del laboratorio. La VLAN 99 queda reservada por si el escenario cambia.
+- Queda **un puerto físico libre** para expansión (uplink a un switch gestionable, DT-02).
 
 ### 5.2 Tabla maestra de hosts
 
-| Hostname | IP | Zona | Rol | Recursos | Proyecto en que aparece |
+| Hostname | IP | Zona (medio) | Rol | Recursos | Proyecto |
 |---|---|---|---|---|---|
-| `fgt-prod-01` | 10.10.0.1 / 10.20.0.1 / 10.30.0.1 / 10.99.0.1 | Todas (router) | Firewall perimetral | Hardware | P1 |
-| `pve-prod-01` | 10.20.0.10 | SERVERS | Hipervisor | Hardware (i5+32GB+RTX) | P1 |
-| `bastion-prod-01` | 10.20.0.40 (futuro 10.10.0.40) | SERVERS (futuro MGMT) | Bastión SSH + Ansible controller | VM 1 vCPU / 2 GB / 20 GB | P1 |
-| `app-prod-01` | 10.20.0.20 | SERVERS | Host Docker | VM 2 vCPU / 4 GB / 40 GB | P1-P2 |
-| `db-prod-01` (TBD) | 10.20.0.30 | SERVERS | (alternativa: PostgreSQL en contenedor de app-prod-01 en P2) | VM o contenedor | P2-P3 |
-| `dev01` (PC Windows) | 10.20.0.30 | SERVERS | Workstation dev | Hardware | Permanente |
-| `admin-ops` (portátil) | 10.10.0.50 | MGMT | Workstation admin | Hardware | Permanente |
-| `nginx-dmz-01` (TBD) | 10.30.0.20 | DMZ | Reverse proxy | VM o contenedor | P2 |
-| `k3s-master-01` (TBD) | 10.20.0.50 | SERVERS | K3s control plane | VM 2 vCPU / 4 GB | P3 |
-| `k3s-worker-01` (TBD) | 10.20.0.51 | SERVERS | K3s worker | VM 2 vCPU / 4 GB | P3 |
-| `monitor-prod-01` (TBD) | 10.20.0.60 | SERVERS | Prometheus + Grafana + Loki | VM 2 vCPU / 4 GB | P4 |
+| `fgt-prod-01` | 10.10.0.1 / 10.20.0.1 / 10.30.0.1 | Todas (router) | Firewall perimetral | Hardware | P1 |
+| `pve-prod-01` | **10.10.0.10** | MGMT (NIC USB, `vmbr1`) | Gestión del hipervisor | Hardware (i5+32GB+RTX) | P1 |
+| *(mismo equipo)* | sin IP | Troncal (`nic0`, `vmbr0` VLAN-aware) | Plano de datos de las VMs | — | P1 |
+| `bastion-prod-01` | 10.20.0.40 hoy → **10.10.0.40** | SERVERS (VLAN 20) → MGMT (VLAN 10) | Bastión SSH + controlador Ansible | VM 1 vCPU / 2 GB / 20 GB | P1 (migración: DT-01) |
+| `app-prod-01` | 10.20.0.20 | SERVERS (VLAN 20) | Host Docker | VM 2 vCPU / 4 GB / 40 GB | P1-P2 |
+| `db-prod-01` (TBD) | 10.20.0.31 | SERVERS (VLAN 20) | PostgreSQL (o contenedor en app-prod-01) | VM o contenedor | P2-P3 |
+| `nginx-dmz-01` (TBD) | 10.30.0.20 | DMZ (VLAN 30) | Reverse proxy TLS | VM o contenedor | P2 |
+| `k3s-master-01` (TBD) | 10.20.0.50 | SERVERS (VLAN 20) | Plano de control K3s | VM 2 vCPU / 4 GB | P3 |
+| `k3s-worker-01` (TBD) | 10.20.0.51 | SERVERS (VLAN 20) | Worker K3s | VM 2 vCPU / 4 GB | P3 |
+| `monitor-prod-01` (TBD) | 10.20.0.60 | SERVERS (VLAN 20) | Prometheus + Grafana + Loki | VM 2 vCPU / 4 GB | P4 |
+| `dev01` (PC estudio) | **10.10.0.30** | MGMT (puerto físico) | Workstation de desarrollo y administración | Hardware | Permanente |
+| `admin-ops` (portátil) | 10.10.0.50 | MGMT (puerto físico) | Workstation de administración | Hardware | Permanente |
+| `ia-gpu` (LXC 130) | DHCP | SERVERS (VLAN 20) | Contenedor ajeno al roadmap con acceso a GPU | LXC 6 vCPU / 20 GB / 250 GB | Fuera de alcance (D-12) |
+
+> **Corrección respecto a versiones anteriores:** `dev01` y `db-prod-01` tenían ambos asignada la `10.20.0.30`. Resuelto: `dev01` pasa a MGMT (`10.10.0.30`) por ser una estación de administración, y `db-prod-01` a `10.20.0.31`.
 
 ---
 
 ## 6. TOPOLOGÍA FÍSICA Y LÓGICA
 
+> **Actualizada en sesión 7** con la topología real verificada en funcionamiento.
+
 ```
-                          INTERNET
-                              │
-                              ▼  IP pública dinámica 203.0.113.10
-                              │  (DDNS: <DDNS-HOSTNAME>)
-                  ┌───────────────────────┐
-                  │  HGU Movistar         │
-                  │  (DMZ Host → FGT)     │
-                  │  192.168.1.1/24       │
-                  └───────────┬───────────┘
-                              │
-                              ▼ WAN1
-              ┌────────────────────────────────────┐
-              │       FortiGate 30E                │
-              │   fgt-prod-01.goloca.lab            │
-              │                                    │
-              │   WAN1      → 192.168.1.x (DHCP)   │
-              │   LAN1 MGMT  → 10.10.0.1/24        │
-              │   LAN2 SRV   → 10.20.0.1/24        │
-              │   LAN3 DMZ   → 10.30.0.1/24        │
-              │   LAN4 WIFI  → 10.99.0.1/24        │
-              │   LAN5       → reserva (P3)        │
-              │                                    │
-              │   SSL-VPN pool → 10.10.99.0/24     │
-              └─┬────┬────┬────┬───────────────────┘
-                │    │    │    │
-        LAN1    │    │LAN2│LAN3│LAN4
-       (MGMT)   │    │(SRV│(DMZ│(WIFI)
-                │    │ )  │ )  │
-                ▼    ▼    ▼    ▼
-         ┌──────────┐ ┌─────────────┐ ┌──────┐ ┌──────┐
-         │ Portátil │ │ DGS-1005P   │ │ libre│ │  AP  │
-         │ admin-   │ │ (sw tonto)  │ │ P2:  │ │ WiFi │
-         │ ops      │ │             │ │ NGINX│ │      │
-         │10.10.0.50│ └──┬───────┬──┘ │ DMZ  │ │10.99 │
-         └──────────┘    │       │    └──────┘ └──────┘
-                         │       │
-                  ┌──────▼──┐ ┌──▼─────────────┐
-                  │ PC Win  │ │ PC Servidor    │
-                  │ workst  │ │ Proxmox VE     │
-                  │ dev01   │ │ pve-prod-01    │
-                  │10.20.0  │ │ 10.20.0.10/24  │
-                  │  .30    │ │                │
-                  └─────────┘ └────────┬───────┘
-                                       │
-                              ┌────────┼────────────────┐
-                              │   Proxmox VMs (P1)      │
-                              │                         │
-                  ┌───────────▼──────┐  ┌───────────────▼───┐
-                  │ bastion-prod-01  │  │ app-prod-01       │
-                  │ 10.20.0.40 (tmp) │  │ 10.20.0.20        │
-                  │ VLAN SRV (tmp)   │  │ VLAN SRV          │
-                  │ 1 vCPU / 2 GB    │  │ 2 vCPU / 4 GB     │
-                  │ Ubuntu 24.04     │  │ Ubuntu 24.04      │
-                  │ Bastión SSH      │  │ Docker host P2    │
-                  └──────────────────┘  └───────────────────┘
+                                INTERNET
+                                    │
+                                    ▼  IP pública dinámica 203.0.113.10
+                                    │  (DDNS: <DDNS-HOSTNAME>)
+                        ┌───────────────────────┐
+                        │   HGU Movistar        │
+                        │   (DMZ Host → FGT)    │
+                        │   192.168.1.1/24      │
+                        └───────────┬───────────┘
+                                    │  un único cable entre plantas
+                                    ▼
+                        ┌───────────────────────┐
+                        │  D-Link DGS-1005P     │   RED DOMÉSTICA
+                        │  (switch no gestion.) │   192.168.1.0/24
+                        └──────┬─────────┬──────┘
+                               │         │
+                        ┌──────▼───┐     │  no se toca: el WiFi de la
+                        │  AP WiFi │     │  casa no entra al laboratorio
+                        └──────────┘     │  (desviación D-13)
+                                         │
+                                         ▼ WAN1 (DHCP → 192.168.1.33)
+        ╔════════════════════════════════════════════════════════════════╗
+        ║                    FortiGate 30E · fgt-prod-01                  ║
+        ║                                                                ║
+        ║  Grupo MGMT (software switch)          Troncal 802.1Q          ║
+        ║  internal1 + internal2 + internal4     internal3               ║
+        ║  + VLAN 10 del troncal                                         ║
+        ║         10.10.0.1/24                   VLAN 20 → 10.20.0.1/24  ║
+        ║                                        VLAN 30 → 10.30.0.1/24  ║
+        ║                                                                ║
+        ║  SSL-VPN pool → 10.10.99.0/24                                  ║
+        ╚═══┬═════════┬══════════════════════════════════┬═══════════════╝
+            │         │                                  │
+    internal1     internal2                         internal3
+    (sin tag)     (sin tag)                        (troncal VLAN)
+            │         │                                  │
+     ┌──────▼───┐ ┌───▼────────┐                         │
+     │ portátil │ │ PC estudio │                         │
+     │admin-ops │ │   dev01    │                         │
+     │10.10.0.50│ │ 10.10.0.30 │                         │
+     └──────────┘ └────────────┘                         │
+                                                         │
+                        ┌────────────────────────────────▼─────────────┐
+                        │        pve-prod-01  ·  Proxmox VE 9.2        │
+                        │        i5 10ª gen · 32 GB · RTX 4060         │
+                        │                                              │
+                        │  NIC USB ──► internal4 (MGMT, sin tag)       │
+                        │      └── vmbr1 · 10.10.0.10  ← GESTIÓN       │
+                        │                                              │
+                        │  nic0 ──► internal3 (troncal, sin IP)        │
+                        │      └── vmbr0 VLAN-aware ← PLANO DE DATOS   │
+                        │            │                                 │
+                        │   ┌────────┼──────────────┬──────────────┐   │
+                        │   │VLAN 20 │              │VLAN 30       │   │
+                        │   ▼        ▼              ▼              │   │
+                        │ ┌────────────┐ ┌────────────┐ ┌────────────┐ │
+                        │ │  bastion   │ │  app01     │ │ nginx-dmz  │ │
+                        │ │ 10.20.0.40 │ │10.20.0.20  │ │ 10.30.0.20 │ │
+                        │ │  (→ MGMT   │ │  Docker    │ │   (P2)     │ │
+                        │ │   DT-01)   │ │            │ │            │ │
+                        │ └────────────┘ └────────────┘ └────────────┘ │
+                        │                                              │
+                        │ ┌────────────┐  ┌──────────────────────────┐ │
+                        │ │  ia-gpu    │  │ P3: k3s-master/worker    │ │
+                        │ │  LXC 130   │  │ P4: monitor-prod-01      │ │
+                        │ │ (fuera del │  │ (VLAN 20)                │ │
+                        │ │  roadmap)  │  └──────────────────────────┘ │
+                        │ └────────────┘                               │
+                        └──────────────────────────────────────────────┘
 ```
+
+### 6.1 Flujo de tráfico — entrada web (desde P2)
+
+```
+Cliente Internet
+   │ HTTPS 443
+   ▼
+HGU 192.168.1.1  ── DMZ Host ──►  FortiGate WAN1 192.168.1.33
+   │
+   ▼  VIP + política WAN → DMZ
+FortiGate: NAT de destino hacia 10.30.0.20
+   │
+   ▼  etiquetado VLAN 30, sale por internal3
+Proxmox nic0 (troncal) → vmbr0 → VM nginx-dmz-01
+   │
+   ▼  termina TLS, proxy inverso
+   │  política DMZ → SERVERS (solo puerto de la API)
+   ▼
+app-prod-01 10.20.0.20 (VLAN 20)
+```
+
+Puntos de depuración en ese camino: reenvío del HGU, log de la política del FortiGate, etiquetado VLAN en `vmbr0`, certificado y `upstream` de NGINX, y healthcheck de la API. Cada salto tiene su propia forma de fallar y su propio registro donde comprobarlo.
 
 ---
 
@@ -340,52 +410,73 @@ PROYECTO 1  ──►  PROYECTO 2  ──►  PROYECTO 3  ──►  PROYECTO 4 
 
 ### 8.1 Mini-Proyecto 1.1 — Segmentación de Red Real con FortiGate 30E
 
-**Duración:** 2,5 - 3 horas
+**Duración:** 5 - 6 horas (revisado al alza en sesión 7: la estimación original de 2,5-3 h no contemplaba la recuperación del equipo ni la migración de la red existente)
 
-**Objetivo:** configurar el FortiGate 30E desde reset de fábrica como núcleo perimetral. Cuatro zonas físicas con políticas least-privilege. Validar conectividad selectiva.
+**Estado:** en progreso. Pasos 1, 2 y 2-bis completados en sesión 7.
 
-**Tecnologías:** FortiGate 30E (FortiOS 7.4+), direccionamiento RFC1918, zonas, políticas, NAT, DHCP, logging.
+**Objetivo:** convertir el FortiGate 30E en el núcleo perimetral real de la plataforma. Segmentación híbrida (puertos físicos para el plano de gestión, troncal 802.1Q para el plano de datos), políticas least-privilege y validación de conectividad selectiva.
 
-**Problema empresarial:** Goloca AI procesa datos sensibles. Intrusión vía dispositivo IoT doméstico comprometido no debe pivotar a infraestructura de producción. Defensa en profundidad empieza en capa de red.
+**Tecnologías:** FortiGate 30E (FortiOS 6.2.5), consola serie, direccionamiento RFC 1918, **VLANs 802.1Q**, software switch, políticas, NAT, DHCP, logging.
+
+**Problema empresarial:** Goloca AI procesa datos de clientes regulados. Una intrusión a través de un dispositivo doméstico comprometido no debe poder pivotar hacia la infraestructura de producción. Y el reverse proxy expuesto a Internet no debe compartir dominio de difusión con las bases de datos. La defensa en profundidad empieza en la capa de red.
 
 **Pasos clave:**
-1. Reset físico FortiGate, acceso inicial vía 192.168.1.99, cambio de contraseña, hostname `fgt-prod-01`, NTP, timezone.
-2. WAN1 en DHCP hacia HGU Movistar, verificación ping/DNS.
-3. Eliminar modo switch interno, configurar cada LAN como interfaz independiente.
-4. Configurar IPs, DHCP servers y reservas estáticas en cada zona.
-5. DNS forwarding desde FortiGate a Cloudflare 1.1.1.1.
-6. Crear objetos de red (addresses, address groups).
-7. Crear políticas firewall en orden (ver matriz abajo).
-8. Habilitar logging Memory + Disk.
-9. Validación: ping cruzados entre zonas para confirmar permitidos y denegados.
-10. Backup de configuración.
+
+*Fase A — recuperación y base (completada, sesión 7)*
+1. Acceso por **consola serie** (el botón de reset físico no responde) y recuperación con la cuenta `maintainer`, cuya contraseña deriva del número de serie. `execute factoryreset`.
+2. Identidad del equipo: contraseña de `admin`, hostname `fgt-prod-01`, NTP FortiGuard, zona horaria. **Verificar cada cambio contra la configuración guardada**, no contra el eco de la consola.
+3. WAN1 en DHCP hacia el HGU. Verificar `ping` y resolución DNS.
+
+*Fase B — migración de la red existente (completada, sesión 7)*
+4. Renumerar la interfaz interna a `10.20.0.1/24`. **Crítico:** la LAN de fábrica (`192.168.1.99/24`) solapa con la red del HGU en WAN; dos interfaces en la misma subred rompen el encaminamiento del tráfico reenviado.
+5. Política transitoria LAN→WAN con NAT para recuperar salida a Internet (se sustituye en la fase D).
+6. Migrar el hipervisor y las VMs al nuevo direccionamiento sin perder acceso (ver runbooks de direccionamiento dual y `qemu-guest-agent`).
+
+*Fase C — segmentación (pendiente)*
+7. **Sacar puertos del switch interno de uno en uno**, dejando para el final el puerto de la estación de gestión. Configurar el grupo MGMT (`10.10.0.1/24`) con DHCP y acceso administrativo.
+8. **Convertir `internal3` en troncal 802.1Q** hacia `nic0` de Proxmox: subinterfaces VLAN 20 (SERVERS) y VLAN 30 (DMZ). Configurar `vmbr0` como VLAN-aware en Proxmox y asignar la VLAN correspondiente a cada VM.
+9. **Conectar la NIC USB** de Proxmox al grupo MGMT y mover ahí la gestión del hipervisor (`10.10.0.10`), dejando `nic0` como troncal sin IP.
+10. **Software switch** que una el grupo físico MGMT con la VLAN 10 del troncal, para que el bastión comparta dominio de difusión con las workstations sin crear dos interfaces en la misma subred (cierra DT-01).
+11. DHCP y reservas estáticas por zona.
+12. DNS forwarding del FortiGate hacia Cloudflare `1.1.1.1` (cierra DT-15).
+
+*Fase D — políticas y cierre (pendiente)*
+13. Objetos de red (addresses y address groups).
+14. Matriz de políticas least-privilege (abajo), sustituyendo la política transitoria.
+15. Logging en memoria (**el 30E no tiene disco de logs**: `Log hard disk: Not available`).
+16. Validación: pings cruzados entre zonas confirmando lo permitido y lo denegado.
+17. Backup de configuración **sanitizado** antes de versionar.
 
 **Matriz de políticas firewall:**
 
 | Nº | Src | Dst | Service | Action | NAT | Log |
 |---|---|---|---|---|---|---|
 | 0 | ssl.root (VPN) | grp-internal | SSH, HTTPS, ICMP | ALLOW | No | All |
-| 1 | grp-trusted-admin | addr-host-pve | HTTPS, SSH | ALLOW | No | All |
-| 2 | grp-trusted-admin | addr-net-servers | SSH, ICMP | ALLOW | No | All |
-| 3 | grp-trusted-admin | addr-net-dmz | ALL | ALLOW | No | All |
+| 1 | addr-net-mgmt | addr-host-pve | HTTPS, SSH | ALLOW | No | All |
+| 2 | addr-net-mgmt | addr-net-servers | SSH, ICMP | ALLOW | No | All |
+| 3 | addr-net-mgmt | addr-net-dmz | ALL | ALLOW | No | All |
 | 4 | addr-net-mgmt | WAN | ALL | ALLOW | Yes | Denied only |
 | 5 | addr-net-servers | WAN | DNS, NTP, HTTPS, HTTP | ALLOW | Yes | All |
-| 6 | addr-net-servers | addr-net-mgmt | NONE | DENY | — | All |
-| 7 | addr-net-dmz | addr-net-servers | (definir P2) | DENY (de momento) | — | All |
+| 6 | addr-net-servers | addr-net-mgmt | ANY | DENY | — | All |
+| 7 | addr-net-dmz | addr-net-servers | (solo puerto de la API, se define en P2) | DENY de momento | — | All |
 | 8 | addr-net-dmz | WAN | HTTPS, DNS | ALLOW | Yes | All |
-| 9 | addr-net-wifi | grp-internal-all | ALL | DENY | — | All |
-| 10 | addr-net-wifi | WAN | ALL | ALLOW | Yes | Denied only |
+| 9 | WAN | addr-host-nginx-dmz | HTTP, HTTPS (VIP) | ALLOW en P2 | DNAT | All |
 | 99 | ANY | ANY | ANY | DENY | — | All |
 
+> Las reglas 9 y 10 originales (zona WIFI) se retiran: la zona no se implementa (D-13). La regla 9 pasa a ser la entrada web de P2.
+
 **Troubleshooting intencional:**
-- Olvidar implicit deny con logging → tráfico raro sin diagnóstico.
-- Política mal ordenada → reglas específicas deben ir antes de generales.
-- IPs duplicadas entre zonas → conflictos ARP.
-- Pérdida de acceso al FortiGate → recuperación por consola serie.
+- **Subredes solapadas entre WAN y LAN** → el tráfico reenviado muere sin error claro y el log no muestra nada. *(Ocurrió de verdad en sesión 7.)*
+- Olvidar el implicit deny con logging → tráfico anómalo sin forma de diagnosticarlo.
+- Política mal ordenada → las reglas específicas deben preceder a las generales.
+- **VLAN sin etiquetar en el bridge de Proxmox** → la VM arranca, tiene enlace, y no habla con nadie.
+- **Etiqueta VLAN correcta pero puerto del FortiGate sin la subinterfaz** → tramas descartadas silenciosamente.
+- Pérdida de acceso al FortiGate → recuperación por consola serie (única vía: el botón de reset no responde en este equipo).
+- **Diafonía en el cable de consola** → intentos de login espurios generados por el propio eco del equipo.
 
-**Entregable GitHub:** `infrastructure/fortigate/` con policies/, address-objects.md, dhcp-reservations.md, backups/. Documentación en `docs/01-*.md`. Runbook de recuperación.
+**Entregable GitHub:** `infrastructure/fortigate/` con `policies/`, `address-objects.md`, `dhcp-reservations.md`, `vlan-design.md` y `backups/` (solo configuraciones sanitizadas). Documentación en `docs/01-*.md`. Runbooks de recuperación por consola y de depuración de VLANs.
 
-**LinkedIn:** segmentación perimetral profesional de plataforma IA multi-tenant. Énfasis en least-privilege y logging de denegaciones.
+**LinkedIn:** segmentación perimetral de una plataforma de IA multi-tenant, con separación de plano de gestión y plano de datos sobre un hipervisor de una sola NIC. Énfasis en least-privilege, troncal 802.1Q y en el incidente real de subredes solapadas.
 
 ---
 
@@ -638,8 +729,8 @@ Documentadas para mostrar madurez técnica. Cada una tiene un plan de resolució
 
 | ID | Deuda | Resolución prevista |
 |---|---|---|
-| DT-01 | Bastión en zona SERVERS en lugar de MGMT | Migración cuando llegue adaptador USB-Ethernet (5 min) |
-| DT-02 | Switch DGS-1005P no gestionable | Sustitución por TP-Link TL-SG108E o similar (~25 €) cuando el lab exceda 4 zonas |
+| DT-01 | Bastión en zona SERVERS en lugar de MGMT | P1.1 fase C: migración vía VLAN 10 sobre el troncal + software switch. Ya no requiere hardware (revisado sesión 7) |
+| DT-02 | Switch DGS-1005P no gestionable | Sustitución por un switch gestionable (~25 €) cuando haga falta más de una zona física adicional. El troncal VLAN reduce mucho la urgencia: solo aplica a equipos físicos, no a VMs |
 | DT-03 | Proxmox repos no-subscription | En producción real → suscripción de pago |
 | DT-04 | Usuarios VPN locales (no LDAP/AD) | P6: integración con IdP (Authentik, Keycloak, o AWS IAM Identity Center) |
 | DT-05 | Doble NAT (HGU + FortiGate) | Opcional: HGU en monopuesto si no se usa IPTV |
@@ -773,11 +864,13 @@ Arrancar **Mini-Proyecto 1.1** en modo guiado paso a paso. El mentor entrega el 
 
 > Esta sección se actualiza dinámicamente conforme el aprendiz avanza. Sirve para que el mentor (en cualquier sesión futura, incluso días después) pueda retomar el contexto exacto.
 
-- **Proyecto actual:** P1 — Infraestructura Base
-- **Mini-proyecto actual:** 1.1 — Segmentación de Red con FortiGate 30E
-- **Paso actual:** Pre-arranque (FortiGate apagado, pendiente reset físico)
+- **Proyecto actual:** P1 — Infraestructura Base (~72%)
+- **Mini-proyecto actual:** 1.1 — Segmentación de Red con FortiGate 30E (~40%)
+- **Paso actual:** fases A y B completadas (equipo recuperado, red migrada a `10.20.0.0/24`). Siguiente: fase C — partir el switch interno y montar el troncal 802.1Q.
+- **Mini-proyectos cerrados:** 1.3, 1.4, 1.5, 1.6
 - **Bloqueos conocidos:** ninguno
-- **Última sesión:** [a actualizar tras la primera sesión guiada]
+- **Última sesión:** 7 (28 agosto 2026)
+- **Detalle operacional:** ver `PROGRESS-LOG.md`
 
 ---
 
@@ -787,4 +880,5 @@ Arrancar **Mini-Proyecto 1.1** en modo guiado paso a paso. El mentor entrega el 
 |---|---|---|
 | 1.0 | 21 mayo 2026 | Versión inicial. Decisiones cerradas tras debate de empresa, hardware y networking. |
 | 1.2 | 21 mayo 2026 | Renombrado empresa ficticia de GOLOCA AI a Goloca AI. Actualizado naming completo: repo, dominio, hostnames, DDNS, configs. |
+| 1.3 | 28 agosto 2026 | **Revisión arquitectónica tras la sesión 7.** Detectado que Proxmox tiene una sola NIC, lo que hacía imposible alojar el NGINX de la DMZ previsto en P2. **Sección 4.1 reescrita como modelo híbrido**: puertos físicos para el plano de gestión, **troncal 802.1Q** para el plano de datos hacia el hipervisor (el veto original a las VLANs se justificaba por el switch no gestionable, que no interviene en el enlace punto a punto Proxmox↔FortiGate). **Sección 4.5 reescrita**: la NIC USB se reasigna a interfaz de gestión dedicada del hipervisor, separando plano de gestión y de datos; cierra DT-01 sin hardware extra. **Secciones 5.1, 5.2 y 6 rehechas** con el mapa de zonas real (MGMT en grupo de puertos, SERVERS en VLAN 20, DMZ en VLAN 30, WIFI no implementada por D-13) y nuevo diagrama de topología más flujo de tráfico web. Corregido conflicto de IP entre `dev01` y `db-prod-01`. **Sección 8.1 reescrita** en cuatro fases con el estado real, duración revisada a 5-6 h y troubleshooting ampliado con los fallos encontrados en la práctica. Añadido 802.1Q al stack técnico. Datos sensibles (IP pública, DDNS, número de serie) sustituidos por marcadores al hacer público el repositorio. |
 | 1.1 | 21 mayo 2026 | Añadida sección 12.1 (**Modo Guiado Paso a Paso**) como regla operativa crítica del mentor. Actualizada sección 13 con tracking de progreso dinámico. El roadmap ahora se ejecuta paso a paso con verificación tras cada acción, sin asumir conocimiento previo sobre acciones físicas (encendido, reset, cableado) ni interfaces específicas. |

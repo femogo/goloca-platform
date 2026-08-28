@@ -8,7 +8,7 @@
 
 ## ESTADO GLOBAL ACTUAL
 
-**Fecha última actualización:** 28 agosto 2026 (v1.6 — fin sesión 7)  
+**Fecha última actualización:** 28 agosto 2026 (v1.7 — fin sesión 7)  
 **Proyecto activo:** P1 — Infraestructura Base, Networking Real y Virtualización  
 **Mini-proyecto activo:** P1.1 — Segmentación FortiGate (EN PROGRESO ~40%: equipo recuperado y operativo, red migrada a 10.x; falta partir el switch interno en zonas y las políticas reales)  
 **Mini-proyectos bloqueados:** ninguno  
@@ -317,7 +317,24 @@
 
 9. **Validación extremo a extremo.** `ssh -p 2222 ubuntu@10.20.0.40` desde el PC estudio (`10.20.0.101`): entrada correcta. Valida en una sola prueba la cadena completa — PC en la red del laboratorio → switch interno del FortiGate → bastión en su IP nueva → filtro UFW con la regla nueva.
 
-**Deudas y desviaciones cerradas en esta sesión:** D-02, D-06, DT-12, y DT-21 aplicada (en forma transitoria).
+10. **REVISIÓN ARQUITECTÓNICA — troncal 802.1Q hacia el hipervisor (D-15).** Al planificar la fase de segmentación, el aprendiz detectó un fallo de diseño que habría bloqueado P2: *"cuando hablas del nginx en P2 conectarlo a internal4, ¿a qué tarjeta? el proxmox solo tiene un ethernet"*.
+   - **Problema:** el NGINX de la DMZ será una VM sobre Proxmox. Con una sola NIC puenteada a una zona, toda VM queda encerrada en esa zona. La DMZ existiría como interfaz del FortiGate pero ningún servidor podría alcanzarla.
+   - **Alternativas evaluadas:** (a) segunda NIC USB dedicada a la DMZ — funciona pero exige un adaptador por zona y el USB-Ethernet es frágil como infraestructura permanente; (b) troncal 802.1Q sobre el enlace existente.
+   - **Decisión: troncal.** El veto a las VLANs de la decisión 4.1 se justificaba por el switch no gestionable, y en el enlace Proxmox↔FortiGate **no hay switch de por medio**: es punto a punto, así que la restricción no aplica. Llevar un troncal al hipervisor es además el patrón estándar en virtualización de producción, y añade 802.1Q al roadmap, que no lo cubría en ningún punto.
+   - **La NIC USB (que el aprendiz ya tiene) se reasigna:** en lugar de dar una zona más, se dedica a la **interfaz de gestión del propio host Proxmox** en MGMT (`10.10.0.10`), dejando `nic0` como troncal puro sin IP. Separa plano de gestión y plano de datos: un error en VLANs o bridges no deja incomunicado al hipervisor, que es precisamente el escenario temido (servidor sin monitor ni teclado).
+   - **Cierra DT-01** sin hardware: el bastión llega a MGMT por VLAN 10, no por adaptador USB.
+   - **Mapa de zonas resultante:** MGMT en grupo de puertos físicos (`internal1`+`internal2`+`internal4`) unido por *software switch* a la VLAN 10 del troncal; SERVERS en VLAN 20; DMZ en VLAN 30; WIFI no se implementa (D-13). Queda un puerto físico libre.
+   - **`ROADMAP.md` actualizado a v1.3** con todo lo anterior: secciones 4.1, 4.5, 5.1, 5.2, 6 (nuevo diagrama + flujo de tráfico web) y 8.1 (reescrita en cuatro fases). Corregido de paso un conflicto de IP preexistente entre `dev01` y `db-prod-01`, ambos en `10.20.0.30`.
+
+11. **REPOSITORIO HECHO PÚBLICO, con auditoría previa.**
+   - Auditoría del árbol de trabajo **y de los 11 commits del historial** buscando hashes, claves privadas, tokens y datos de localización.
+   - **Hallazgos:** (a) el número de serie del FortiGate, escrito en este mismo log en la sesión 7 junto a la fórmula de la contraseña `maintainer`; (b) la IP pública real y el nombre DDNS en `ROADMAP.md`, presentes desde la sesión 1.
+   - **Resolución:** historial reescrito con `git filter-branch` sustituyendo los tres valores por marcadores (`FGT30E<SERIAL-REDACTED>`, `203.0.113.10` del rango RFC 5737, `<DDNS-HOSTNAME>`), refs de respaldo eliminadas, `gc --prune=now`, y `push --force-with-lease`. Los 11 commits de historia se conservan.
+   - **Backup del FortiGate sanitizado** antes de versionar: 23 contraseñas y 34 bloques PEM redactados. `.gitignore` reforzado para que `backups/*.conf` no pueda subirse por accidente, permitiendo solo `*.sanitized.conf`. Documentada la convención en `README.md` y en `infrastructure/fortigate/backups/README.md`.
+   - **Verificado desde fuera**, sin sesión iniciada, que el contenido publicado no expone ninguno de los tres datos.
+   - **Riesgo residual aceptado por el aprendiz:** los commits huérfanos previos al *force-push* siguen un tiempo en GitHub, alcanzables solo por quien conozca su SHA exacto, que nunca se publicó. Se descartó recrear el repositorio.
+
+**Deudas y desviaciones cerradas en esta sesión:** D-02, D-06, DT-12, DT-21 aplicada (transitoria), y DT-01 replanteada con solución sin hardware.
 
 **Lo que esta sesión NO hizo (queda para la siguiente):**
 - Partir el switch interno (`lan`, tipo `hard-switch`) en las 4 zonas físicas del plan. La red sigue siendo **plana**: `10.20.0.0/24` para todo.
@@ -388,6 +405,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | DT-21 | Reglas UFW con origen transitorio `192.168.1.x` | Endurecer a `10.10.x` (bastion) / `10.20.0.40` (app01) post-FortiGate | 🔄 PARCIAL sesión 7: reglas `10.20.0.0/24` (bastion) y `10.20.0.40` (app01) añadidas y operativas. Falta borrar las viejas y endurecer a `10.10.x` cuando existan las zonas |
 | DT-22 | BIOS se detiene en boot esperando Enter (sin monitor) | Acceso físico al BIOS: desactivar "wait on error/F1". Hacer junto a config FortiGate | Pendiente |
 | **DT-23** | **Driver NVIDIA instalado a nivel de host Proxmox (no aislado en VM), GPU compartida con LXC "ia-gpu" vía device bind + cgroup2** | **P6: decidir si se migra a VFIO/IOMMU exclusivo hacia la VM de LLM local (implica desvincular el driver del host y las cargas de ia-gpu) o si se acepta el modelo compartido como desviación permanente** | **Nueva sesión 6. Sin resolución hasta P6** |
+| **DT-28** | **Repositorio público: cada commit es visible en el momento de subirlo** | **Sanitizar toda configuración antes de versionar. `.gitignore` ya bloquea `backups/*.conf`, pero cualquier export nuevo requiere el mismo filtro** | **Nueva sesión 7** |
+| **DT-29** | **Nombre DDNS `goloca-ai` deducible del repositorio público** | **Al registrarlo en P1.2, elegir un nombre no derivable del proyecto** | **Nueva sesión 7** |
 | **DT-24** | **FortiOS v6.2.5 (build1142, agosto 2020): versión antigua, fuera de soporte, con CVEs conocidas** | **Actualizar requiere cuenta de soporte de Fortinet, que un equipo de segunda mano probablemente no tenga. Evaluar el riesgo real antes de exponer nada a Internet en P1.2** | **Nueva sesión 7** |
 | **DT-25** | **Política `TEMP-lan-to-wan` totalmente permisiva (all/all/ACCEPT + NAT)** | **Sustituir por la matriz least-privilege de la sección 8.1 del roadmap al completar P1.1** | **Nueva sesión 7** |
 | **DT-26** | **Reglas UFW obsoletas de `192.168.1.x` sin borrar en ambas VMs** | **`ufw delete` de las reglas antiguas una vez confirmado el acceso estable por `10.20.0.x`** | **Nueva sesión 7** |
@@ -524,6 +543,10 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 27-ago (S7) | **`qemu-guest-agent` para migrar las VMs, no SSH ni consola noVNC** | Canal virtio independiente de la red: funciona con la VM aislada y evita el callejón sin contraseña de consola que bloqueó la sesión 4 |
 | 27-ago (S7) | **UFW actualizado ANTES de cambiar las IPs de las VMs** | Invertir el orden habría dejado las VMs arrancando bien pero rechazando el SSH del operador |
 | 27-ago (S7) | **Verificar cada cambio del FortiGate contra el estado guardado, no contra el eco de consola** | El equipo aceptó visualmente comandos que no se aplicaron (timezone). A 9600 baudios el eco no es prueba de nada |
+| 28-ago (S7) | **Troncal 802.1Q hacia Proxmox en lugar de una NIC física por zona** | Una sola NIC integrada hacía imposible la DMZ de P2. El veto a VLANs de la decisión 4.1 se basaba en el switch no gestionable, que no interviene en un enlace punto a punto. Escala sin hardware y añade 802.1Q al portfolio |
+| 28-ago (S7) | **NIC USB dedicada a la gestión del hipervisor, no a una zona más** | Separa plano de gestión y plano de datos: un error de VLANs no deja el servidor incomunicado, y no hay monitor ni teclado conectados |
+| 28-ago (S7) | **Zona WIFI no se implementa** | Sin clientes: el AP se queda en la red doméstica (D-13). Una zona vacía no aporta nada; la VLAN 99 queda reservada |
+| 28-ago (S7) | **Repositorio público con historial reescrito, no recreado** | Reescribir preserva los 11 commits de progresión real, que es lo que da valor al portfolio frente a un repo que aparece terminado de golpe |
 
 ---
 
@@ -537,9 +560,9 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Avance porcentual P1 | ~72% |
 | Avance global roadmap | ~12% |
 | Commits en GitHub | 7 (initial ×2, estructura, log S1-3, Terminado 1.6, docs P1.3/P1.6, .gitattributes, runbooks) — pendiente confirmar si sigue así tras 3 meses |
-| Deudas técnicas registradas | 27 (DT-01 a DT-27) |
+| Deudas técnicas registradas | 29 (DT-01 a DT-29) |
 | Deudas técnicas resueltas | 8 (DT-11,12,14,16,17,18,19,20) + DT-21 parcial |
-| Desviaciones del plan | 14 (D-01 a D-14); resueltas: D-02, D-06, D-07, D-09, D-10, D-11 |
+| Desviaciones del plan | 15 (D-01 a D-15); resueltas: D-02, D-06, D-07, D-09, D-10, D-11 |
 | Incidentes mayores resueltos | 2 (pérdida SSH ambas VMs — S4; sin salida a Internet por solapamiento de subredes — S7) |
 | Equipos detrás del firewall | 5 (Proxmox, bastion, app01, PC estudio, portátil) + LXC ia-gpu |
 | Storages LVM operativos (roadmap) | 4 (3 thin-pool + 1 backup ext4) — más 1 storage adicional (`local-lvm-ssd-samsung`) fuera del roadmap, en uso por ia-gpu |
@@ -561,6 +584,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 2026-05-23 | 1.2 | Sesión 3. P1.4 y P1.5 cerrados. Hardening SSH, ProxyJump, VS Code. D-07/08/09, DT-17/18/19/20. |
 | 2026-05-24 | 1.3 | Sesión 4. **P1.3 cerrado 100%** (DT-11/14/16). **Incidente mayor SSH** (DT-17 mal cerrado, rescate guestfish ambas VMs). **Migración almacenamiento** local-lvm→nvme1 (D-10). **P1.6 completo** (baseline 6 piezas + Docker). **`baseline-setup.sh`** (cierra DT-19/20). DT-21/22 nuevas. P1 al 67%, global ~11%. 7 deudas resueltas. |
 | 2026-05-24 | 1.4 | Sesión 5 (consolidación de portfolio, sin avance de infra). Corregido dato falso de commits (eran 7, no 1). **6 docs de P1.3/P1.6** subidos (`fb0133a`). **`.gitattributes`** para line endings Windows→Linux (`243f3f3`). **5 runbooks operacionales de S4** subidos (`1a48d88`). `docs/` y `runbooks/` pasan de vacías a pobladas. Pendiente: extraer configs reales de las VMs a archivos versionados. |
+| 2026-08-28 | 1.7 | Sesión 7 (cont.). **Revisión arquitectónica (D-15):** detectado que Proxmox tiene una sola NIC, lo que hacía imposible la DMZ de P2. Adoptado **troncal 802.1Q** hacia el hipervisor y **NIC USB dedicada a gestión**, separando plano de gestión y de datos; cierra DT-01 sin hardware. `ROADMAP.md` actualizado a v1.3 (secciones 4.1, 4.5, 5.1, 5.2, 6 y 8.1). **Repositorio hecho público** tras auditar los 11 commits: historial reescrito para redactar número de serie, IP pública y DDNS; backup del FortiGate sanitizado (23 contraseñas, 34 bloques PEM); `.gitignore` reforzado. Nuevas DT-28 y DT-29. |
 | 2026-08-28 | 1.6 | Sesión 7 (primera sesión de ejecución desde mayo). **FortiGate recuperado y operativo** (consola serie, diafonía de cable diagnosticada, `maintainer`, `factoryreset`, hostname/NTP/timezone) — cierra D-06. **Incidente mayor: sin salida a Internet por solapamiento de subredes WAN/LAN**, resuelto renumerando la LAN a `10.20.0.1/24`. **Migración completa del laboratorio a `10.20.0.0/24`**: Proxmox `.10` (direccionamiento dual en caliente, sin perder acceso), bastion `.40` y app01 `.20` (vía `qemu-guest-agent`, sin SSH ni consola), PC estudio y portátil por DHCP. Corregido el `/32` de `vmbr0` heredado de S2. Cierra D-02, DT-12; DT-21 aplicada parcialmente. Nuevas D-13/D-14 y DT-24 a DT-27. P1.1 al ~40%, P1 al ~72%. |
 | 2026-08-27 | 1.5 | Sesión 6 (reconexión tras 3 meses). Auditoría completa de Proxmox. **Hallazgo D-12/DT-23:** LXC "ia-gpu" ajeno al roadmap ocupa el SSD Samsung (182,6 GB) y comparte la GPU a nivel de host, incompatible con el plan VFIO original de P6. **Recalculado el plan de almacenamiento:** Samsung excluido en exclusiva para ia-gpu; NVMe2 (antes vacío) asume el rol de storage para K3s/VMs secundarias de P3; VM de LLM local de P6 planificada en NVMe1 junto al resto de plataforma. Decisión sobre el futuro de ia-gpu y la GPU aplazada a P6. Cable de consola del FortiGate confirmado como ya disponible — P1.1/P1.2 sin bloqueador, pendientes de agenda. Red de bastion/app01 confirmada aún sin migrar a 10.x. |
 
