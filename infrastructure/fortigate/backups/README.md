@@ -4,8 +4,18 @@
 
 | Pattern | Committed | Content |
 |---|---|---|
-| `*.sanitized.conf` | Yes | Full configuration with secrets redacted |
-| `*.conf.full` | **No** (gitignored) | Raw export from the device |
+| `fgt-prod-01.sanitized.conf` | Yes | Current configuration, secrets redacted |
+| `*.conf.full` | **No** (gitignored) | Raw exports from the device, kept locally |
+| `*.conf` | **No** (gitignored) | Any raw export, by default |
+
+**One sanitized file, overwritten in place.** Timestamped copies are not kept:
+each commit's diff shows what actually changed in the firewall configuration,
+which is far more readable than comparing two near-identical 130 KB files.
+Git history holds every previous state.
+
+Raw exports keep their timestamped names locally and stay out of the
+repository. They are the only copies that can actually restore the appliance —
+a sanitized file cannot, because the redacted values are real configuration.
 
 ## Why
 
