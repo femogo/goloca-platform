@@ -8,7 +8,7 @@
 
 ## ESTADO GLOBAL ACTUAL
 
-**Fecha última actualización:** 28 agosto 2026 (v1.8 — fin sesión 7)  
+**Fecha última actualización:** 28 agosto 2026 (v1.9 — fin sesión 7)  
 **Proyecto activo:** P1 — Infraestructura Base, Networking Real y Virtualización  
 **Mini-proyecto activo:** P1.1 — Segmentación FortiGate (EN PROGRESO ~65%: equipo operativo, red migrada a 10.x, **switch interno partido en MGMT y SERVERS con políticas entre zonas**. Falta la fase D: políticas least-privilege, DNS forwarder, logging y backup)  
 **Mini-proyectos bloqueados:** ninguno  
@@ -436,7 +436,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | DT-21 | Reglas UFW con origen transitorio `192.168.1.x` | Endurecer a `10.10.x` (bastion) / `10.20.0.40` (app01) post-FortiGate | 🔄 PARCIAL sesión 7: reglas `10.20.0.0/24` (bastion) y `10.20.0.40` (app01) añadidas y operativas. Falta borrar las viejas y endurecer a `10.10.x` cuando existan las zonas |
 | DT-22 | BIOS se detiene en boot esperando Enter (sin monitor) | Acceso físico al BIOS: desactivar "wait on error/F1". Hacer junto a config FortiGate | Pendiente |
 | **DT-23** | **Driver NVIDIA instalado a nivel de host Proxmox (no aislado en VM), GPU compartida con LXC "ia-gpu" vía device bind + cgroup2** | **P6: decidir si se migra a VFIO/IOMMU exclusivo hacia la VM de LLM local (implica desvincular el driver del host y las cargas de ia-gpu) o si se acepta el modelo compartido como desviación permanente** | **Nueva sesión 6. Sin resolución hasta P6** |
-| **DT-30** | **Sin backup de la configuración del FortiGate posterior a la segmentación** | **Exportar desde la interfaz web, sanitizar y versionar. Todo el trabajo de las fases A-C vive solo en la flash del equipo** | **Nueva sesión 7 — pendiente al cerrar** |
+| ~~DT-30~~ | ~~Sin backup de la configuración del FortiGate posterior a la segmentación~~ | ✅ **RESUELTA sesión 7:** exportado, sanitizado (23 credenciales, 34 bloques PEM) y versionado como `fgt-prod-01.sanitized.conf` |
 | **DT-31** | **Una sola vía de gestión: el PC estudio. Portátil apagado y cable de consola desconectado** | **Enchufar el portátil a `lan1`/`lan2` antes de tocar políticas. Riesgo aceptado explícitamente por el aprendiz** | **Nueva sesión 7** |
 | **DT-28** | **Repositorio público: cada commit es visible en el momento de subirlo** | **Sanitizar toda configuración antes de versionar. `.gitignore` ya bloquea `backups/*.conf`, pero cualquier export nuevo requiere el mismo filtro** | **Nueva sesión 7** |
 | **DT-29** | **Nombre DDNS `goloca-ai` deducible del repositorio público** | **Al registrarlo en P1.2, elegir un nombre no derivable del proyecto** | **Nueva sesión 7** |
@@ -507,9 +507,8 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 - ⏸️ Zona WIFI: no se implementa (D-13).
 
 ### Lo siguiente — fase D de P1.1
-1. **Backup de la configuración** (DT-30). Es lo primero: nada de lo hecho está respaldado.
-2. **Enchufar y encender el portátil** en `lan1` o `lan2` (DT-31), para tener segunda vía antes de tocar políticas.
-3. **Sustituir `TEMP-lan-to-wan`** por la matriz least-privilege de la sección 8.1 del roadmap. Hoy esa política es `all/all/ACCEPT` y gobierna la salida de la zona de servidores: Proxmox y las VMs pueden abrir cualquier puerto a cualquier destino. Restringir a DNS, NTP, HTTP y HTTPS (**DT-25**).
+1. **Enchufar y encender el portátil** en `lan1` o `lan2` (DT-31), para tener segunda vía antes de tocar políticas. El aprendiz optó por dejarlo apagado y enchufarlo solo si pierde el acceso.
+2. **Sustituir `TEMP-lan-to-wan`** por la matriz least-privilege de la sección 8.1 del roadmap. Hoy esa política es `all/all/ACCEPT` y gobierna la salida de la zona de servidores: Proxmox y las VMs pueden abrir cualquier puerto a cualquier destino. Restringir a DNS, NTP, HTTP y HTTPS (**DT-25**).
 4. Objetos de red (addresses y address groups) para que las políticas sean legibles.
 5. **DNS forwarder** del FortiGate hacia `1.1.1.1`, y después apuntar ahí el `resolv.conf` de Proxmox (**DT-15**).
 6. **Logging en memoria** y *deny* implícito con registro — el 30E no tiene disco de logs.
@@ -609,7 +608,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | Avance global roadmap | ~13% |
 | Commits en GitHub | 7 (initial ×2, estructura, log S1-3, Terminado 1.6, docs P1.3/P1.6, .gitattributes, runbooks) — pendiente confirmar si sigue así tras 3 meses |
 | Deudas técnicas registradas | 31 (DT-01 a DT-31) |
-| Deudas técnicas resueltas | 8 (DT-11,12,14,16,17,18,19,20) + DT-21 parcial |
+| Deudas técnicas resueltas | 9 (DT-11,12,14,16,17,18,19,20,30) + DT-21 parcial |
 | Desviaciones del plan | 15 (D-01 a D-15); resueltas: D-02, D-06, D-07, D-09, D-10, D-11 |
 | Incidentes mayores resueltos | 2 (pérdida SSH ambas VMs — S4; sin salida a Internet por solapamiento de subredes — S7) |
 | Equipos detrás del firewall | 5 (Proxmox, bastion, app01, PC estudio, portátil) + LXC ia-gpu |
@@ -632,6 +631,7 @@ Cambios respecto a lo que dice `ROADMAP.md`:
 | 2026-05-23 | 1.2 | Sesión 3. P1.4 y P1.5 cerrados. Hardening SSH, ProxyJump, VS Code. D-07/08/09, DT-17/18/19/20. |
 | 2026-05-24 | 1.3 | Sesión 4. **P1.3 cerrado 100%** (DT-11/14/16). **Incidente mayor SSH** (DT-17 mal cerrado, rescate guestfish ambas VMs). **Migración almacenamiento** local-lvm→nvme1 (D-10). **P1.6 completo** (baseline 6 piezas + Docker). **`baseline-setup.sh`** (cierra DT-19/20). DT-21/22 nuevas. P1 al 67%, global ~11%. 7 deudas resueltas. |
 | 2026-05-24 | 1.4 | Sesión 5 (consolidación de portfolio, sin avance de infra). Corregido dato falso de commits (eran 7, no 1). **6 docs de P1.3/P1.6** subidos (`fb0133a`). **`.gitattributes`** para line endings Windows→Linux (`243f3f3`). **5 runbooks operacionales de S4** subidos (`1a48d88`). `docs/` y `runbooks/` pasan de vacías a pobladas. Pendiente: extraer configs reales de las VMs a archivos versionados. |
+| 2026-08-28 | 1.9 | Backup del FortiGate posterior a la segmentación: exportado, sanitizado y versionado. Cambiada la convención a un único fichero sobrescrito, para que el diff de cada commit muestre qué cambió en la configuración del cortafuegos. Cierra DT-30. |
 | 2026-08-28 | 1.8 | Sesión 7 (fase C). **Switch interno partido en dos zonas**: `lan`/SERVERS (`lan3`, Proxmox y VMs) y `port-mgmt`/MGMT (`lan1`,`lan2`,`lan4`, estaciones). DHCP por zona, políticas `mgmt-to-wan` (NAT) y `mgmt-to-servers` (sin NAT), sin política SERVERS→MGMT por diseño. Estación migrada a MGMT y verificada de extremo a extremo (`TTL=63` confirma encaminamiento entre zonas). Decidido posponer el troncal 802.1Q a P2: SERVERS queda sin etiquetar y solo la DMZ lo necesitará. Documentados los 5 runbooks de S7 y 4 docs nuevos; README corregido (afirmaba completadas la segmentación y la SSL-VPN). Nuevas DT-30 (sin backup) y DT-31 (una sola vía de gestión). P1.1 al ~65%, P1 al ~77%. |
 | 2026-08-28 | 1.7 | Sesión 7 (cont.). **Revisión arquitectónica (D-15):** detectado que Proxmox tiene una sola NIC, lo que hacía imposible la DMZ de P2. Adoptado **troncal 802.1Q** hacia el hipervisor y **NIC USB dedicada a gestión**, separando plano de gestión y de datos; cierra DT-01 sin hardware. `ROADMAP.md` actualizado a v1.3 (secciones 4.1, 4.5, 5.1, 5.2, 6 y 8.1). **Repositorio hecho público** tras auditar los 11 commits: historial reescrito para redactar número de serie, IP pública y DDNS; backup del FortiGate sanitizado (23 contraseñas, 34 bloques PEM); `.gitignore` reforzado. Nuevas DT-28 y DT-29. |
 | 2026-08-28 | 1.6 | Sesión 7 (primera sesión de ejecución desde mayo). **FortiGate recuperado y operativo** (consola serie, diafonía de cable diagnosticada, `maintainer`, `factoryreset`, hostname/NTP/timezone) — cierra D-06. **Incidente mayor: sin salida a Internet por solapamiento de subredes WAN/LAN**, resuelto renumerando la LAN a `10.20.0.1/24`. **Migración completa del laboratorio a `10.20.0.0/24`**: Proxmox `.10` (direccionamiento dual en caliente, sin perder acceso), bastion `.40` y app01 `.20` (vía `qemu-guest-agent`, sin SSH ni consola), PC estudio y portátil por DHCP. Corregido el `/32` de `vmbr0` heredado de S2. Cierra D-02, DT-12; DT-21 aplicada parcialmente. Nuevas D-13/D-14 y DT-24 a DT-27. P1.1 al ~40%, P1 al ~72%. |
