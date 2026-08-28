@@ -43,9 +43,12 @@ config-secrets.yaml
 backup/
 
 # Fortigate/Network configs with sensitive data
-# (we'll store sanitized versions only)
+# Raw exports contain admin password hashes (set password ENC ...) and
+# certificate private keys. Only sanitized versions are committed.
 *.conf.full
 *.full
+infrastructure/fortigate/backups/*.conf
+!infrastructure/fortigate/backups/*.sanitized.conf
 
 # Python
 __pycache__/
